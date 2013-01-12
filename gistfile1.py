@@ -96,7 +96,7 @@ class Edge:
             self.access_bike = 0
 
     def toString(self):
-        return "" + str(self.dest) + ", " + self.name + ", " + str(self.length) + ", " + str(self.highway) + ", " + str(self.access_foot) + ", " + str(self.access_bike) + ";"
+        return "" + str(self.dest) + ", '" + self.name + "', " + str(self.length) + ", " + str(self.highway) + ", " + str(self.access_foot) + ", " + str(self.access_bike) + ";"
 
 class Vertex:
     def __init__(self, id, lon, lat, eds, tags):
@@ -104,20 +104,19 @@ class Vertex:
         self.lon = lon
         self.lat = lat
         self.eds = []
+        if "name" in tags:
+            self.name = tags["name"]
+        else:
+            self.name = "no name"
         self.tags = {}
 
     def add_edge(self, edge):
         self.eds.append(edge)
 
     def toString(self):
-        name = "no name"
-        if "name" in self.tags:
-            name = self.tags[name]
-#self.eds +
-        #tempe =  ["0" for i in range(10-len(self.eds))]
         tempe = [str(i) for i in self.eds] + ["0"]*(10 - len(self.eds))
         edges = ", ".join(tempe)
-        return str(self.id)+")\t" + name + ", " + edges + ", " + str(self.lon) + ", " + str(self.lat) + ";"
+        return "'"+self.name + "', " + edges + ", " + str(self.lon) + ", " + str(self.lat) + ", " + str(self.id) +  ";"
 
 
 class Node:
@@ -255,9 +254,11 @@ class OSM:
 
     #return method for usage in matlab
     def convert2mat(self):
-      vertexes = {}
+      vertexes = []
       edges = []
+      node_lu = {}
       eid = 0
+      nid = 1
       for way in self.ways.itervalues():
           """ create 2 edges for each direction one """
           # add edge with way direction
@@ -265,36 +266,57 @@ class OSM:
           edges.append(Edge(eid, way.id, way.nds, way.tags, self.calclength(way)))
           #print "eID: " + str(eid) + "\tdest: " + str(way.nds[-1]) + "\torg: " + str(way.nds[0])
           # Pseudocode auf gelben zettel einfuegen
-          if way.nds[0] in vertexes:
-              vertexes[way.nds[0]].add_edge(eid)
+          if way.nds[0] in node_lu:
+              #print "org: "+ str(way.nds[0]) + "new: " + str(node_lu[way.nds[0]])
+              vertexes[node_lu[way.nds[0]]-1].add_edge(eid)
           else:
               node = self.nodes[way.nds[0]]
-              vertexes[node.id] = Vertex(node.id, node.lon, node.lon, [], node.tags)
-              vertexes[node.id].add_edge(eid)
+              #print "add new id: " + str(node.id) + "=>" + str(nid)
+              node_lu[str(node.id)] = nid # substitude the node id with array index
+              vertexes.append(Vertex(node.id, node.lon, node.lon, [], node.tags))
+              vertexes[nid-1].add_edge(eid)
+              nid += 1
 
           # add edge against way direction
           eid += 1
           reversed_nodes = way.nds[::-1]
           edges.append(Edge(eid, way.id, reversed_nodes, way.tags, self.calclength(way)))
           # Pseudocode auf gelben zettel einfuegen
-          if reversed_nodes[0] in vertexes:
-              vertexes[reversed_nodes[0]].add_edge(eid)
+          if reversed_nodes[0] in node_lu:
+              #print "org: "+ str(way.nds[0]) + "new: " + str(node_lu[way.nds[0]])
+              vertexes[node_lu[reversed_nodes[0]]-1].add_edge(eid)
           else:
               node = self.nodes[reversed_nodes[0]]
-              vertexes[node.id] = Vertex(node.id, node.lon, node.lon, [], node.tags)
-              vertexes[node.id].add_edge(eid)
+              #print "add new id: " + str(node.id) + "=>" + str(nid)
+              node_lu[node.id] = nid # substitude the node id with array index
+              vertexes.append(Vertex(node.id, node.lon, node.lon, [], node.tags))
+              vertexes[nid-1].add_edge(eid)
+              nid += 1
 
       # reduce node numbers
+      for e in edges:
+          e.dest = node_lu[e.dest]
 
       # print edges matrix
 
       i = 0
+      print "\n%[destination node ID, name, length, highway (1:footway, 2:cycleway, 3:big_street, 4:small_street, 5:bus, 6:tram), footaccess (0/1), bikeaccess (0/1)]"
+      print "edges = {"
       for ed in edges:
           i += 1
-          print str(i) + ": " + ed.toString()
+          #print str(i) + ": " + ed.toString()
+          print ed.toString()
+      print "}\n"
+
       # print edges matrix
-      for v in vertexes.itervalues():
-          print v.toString()
+      i = 0
+      print "%[name, 10 fields with edges, lon, lat, original ID]"
+      print "nodes = {"
+      for v in vertexes:
+        i+=1
+        #print str(i)+": "+ v.toString()
+        print v.toString()
+      print "}\n"
 
 
 def main(argv=None):
