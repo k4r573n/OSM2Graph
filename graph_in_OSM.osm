@@ -1,0 +1,73 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<osm version='0.6' upload='true' generator='JOSM'>
+  <node id='-48' action='modify' visible='true' lat='0.009533198006210589' lon='-0.0218686805579619' />
+  <node id='-46' action='modify' visible='true' lat='0.002936696692527762' lon='-0.022388601847134933' />
+  <node id='-44' action='modify' visible='true' lat='0.006906771163282024' lon='-0.025842415673724764' />
+  <node id='-36' action='modify' visible='true' lat='0.01229445272306907' lon='-0.021651044714240175' />
+  <node id='-16' action='modify' visible='true' lat='0.016304422186713786' lon='-0.021334987997838634'>
+    <tag k='name' v='Victor hugo' />
+  </node>
+  <node id='-14' action='modify' visible='true' lat='0.0030093562004103918' lon='-0.007411101093986053'>
+    <tag k='name' v='ENSE3' />
+  </node>
+  <node id='-12' action='modify' visible='true' lat='-0.0019313778604975649' lon='-0.022772292452429867'>
+    <tag k='name' v='chavont' />
+  </node>
+  <node id='-10' action='modify' visible='true' lat='0.010465373001793484' lon='-0.03570803254375098'>
+    <tag k='name' v='Gare TGV' />
+  </node>
+  <node id='-8' action='modify' visible='true' lat='0.0013025571618547449' lon='-0.035887695600574886'>
+    <tag k='name' v='Gustave Rivet' />
+  </node>
+  <node id='-6' action='modify' visible='true' lat='-0.012172172008265467' lon='-0.023131618566077677'>
+    <tag k='name' v='MC2' />
+  </node>
+  <node id='-4' action='modify' visible='true' lat='-0.023131617937705223' lon='-0.0219638086967223'>
+    <tag k='name' v='Patinove' />
+  </node>
+  <way id='-32' action='modify' visible='true'>
+    <nd ref='-16' />
+    <nd ref='-14' />
+    <tag k='highway' v='cycleway' />
+    <tag k='length' v='1000' />
+  </way>
+  <way id='-30' action='modify' visible='true'>
+    <nd ref='-12' />
+    <nd ref='-46' />
+    <nd ref='-44' />
+    <nd ref='-48' />
+    <nd ref='-36' />
+    <nd ref='-16' />
+    <tag k='highway' v='cycleway' />
+  </way>
+  <way id='-28' action='modify' visible='true'>
+    <nd ref='-6' />
+    <nd ref='-4' />
+    <tag k='highway' v='cycleway' />
+  </way>
+  <way id='-26' action='modify' visible='true'>
+    <nd ref='-16' />
+    <nd ref='-10' />
+    <tag k='highway' v='cycleway' />
+  </way>
+  <way id='-24' action='modify' visible='true'>
+    <nd ref='-14' />
+    <nd ref='-12' />
+    <tag k='highway' v='cycleway' />
+  </way>
+  <way id='-22' action='modify' visible='true'>
+    <nd ref='-12' />
+    <nd ref='-6' />
+    <tag k='highway' v='cycleway' />
+  </way>
+  <way id='-20' action='modify' visible='true'>
+    <nd ref='-10' />
+    <nd ref='-8' />
+    <tag k='highway' v='footway' />
+  </way>
+  <way id='-18' action='modify' visible='true'>
+    <nd ref='-8' />
+    <nd ref='-12' />
+    <tag k='highway' v='footway' />
+  </way>
+</osm>
