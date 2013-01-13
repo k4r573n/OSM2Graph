@@ -19,16 +19,20 @@ import getopt
 import matplotlib.pyplot as plt
 
 import math
+import urllib
 
 def download_osm(left,bottom,right,top):
     """ Return a filehandle to the downloaded data."""
     from urllib import urlopen
     bbox = "%f,%f,%f,%f"%(left,bottom,right,top)
-    url = "http://api.openstreetmap.org/api/0.6/map?bbox=" + bbox
+    #url = "http://api.openstreetmap.org/api/0.6/map?bbox=" + bbox
+    
+    url = "http://overpass-api.de/api/interpreter?data=" + urllib.quote("(way("+ bbox + ")[highway];>;);out;")
     print url
     
     #url = "data.osm"
-    url = "graph_in_OSM.osm"
+    #url = "graph_in_OSM.osm"
+    url = "grenoble_highway.osm"
     fp = urlopen( url )
     #fp = urlopen('http://overpass-api.de/api/interpreter?data=%28nodes%28' + bbox + '%29%3B%3C%3B%29%3Bout%20body%3B%0A' )
     return fp
@@ -79,20 +83,19 @@ class Edge:
 
         self.length = length
 
-        #TODO parse highway and set self.highway to a number
         hw={'footway':1, 'cycleway':2, 'path':1, 'residental':4,'motorway':3,'trunk':3,'motorway_link':3,'primary':3,
                 'secondary':3, 'tertiary':4, 'living_street':4, 'unclassified':4, 'service':4, 'track':2, 'steps':1,
                 'bus':5, 'tram':6}
         if "highway" in tags and tags["highway"] in hw:
             self.highway = hw[tags["highway"]]
         else:
-            self.highway = "footway"
+            self.highway = 1# if unknown its a footway
 
         self.access_foot = 1
-        if "foot" in tags and tags[foot] == "no":
+        if "foot" in tags and tags["foot"] == "no":
             self.access_foot = 0
         self.access_bike = 1
-        if "bicycle" in tags and tags[bicycle] == "no":
+        if "bicycle" in tags and tags["bicycle"] == "no":
             self.access_bike = 0
 
     def toString(self):
@@ -298,25 +301,27 @@ class OSM:
           e.dest = node_lu[e.dest]
 
       # print edges matrix
+      f = open('graph.m', 'w')
 
       i = 0
-      print "\n%[destination node ID, name, length, highway (1:footway, 2:cycleway, 3:big_street, 4:small_street, 5:bus, 6:tram), footaccess (0/1), bikeaccess (0/1)]"
-      print "edges = {"
+      f.write("\n%[destination node ID, name, length, highway (1:footway, 2:cycleway, 3:big_street, 4:small_street, 5:bus, 6:tram), footaccess (0/1), bikeaccess (0/1)]\n")
+      f.write("edges = {\n")
       for ed in edges:
           i += 1
           #print str(i) + ": " + ed.toString()
-          print ed.toString()
-      print "}\n"
+          f.write( ed.toString()+"\n")
+      f.write( "}\n\n")
 
       # print edges matrix
       i = 0
-      print "%[name, 10 fields with edges, lon, lat, original ID]"
-      print "nodes = {"
+      f.write( "%[name, 10 fields with edges, lon, lat, original ID]\n")
+      f.write( "nodes = {\n")
       for v in vertexes:
         i+=1
         #print str(i)+": "+ v.toString()
-        print v.toString()
-      print "}\n"
+        f.write( v.toString() +"\n")
+      f.write( "}\n")
+      f.close()
 
 
 def main(argv=None):
@@ -334,7 +339,8 @@ def main(argv=None):
         print >>sys.stderr, "for help use --help"
         return 2
     #call the convert function
-    G=read_osm(download_osm(-122.32,47.60,-122.31,47.61))
+    #G=read_osm(download_osm(-122.32,47.60,-122.31,47.61))
+    G=read_osm(download_osm(45.1356,5.6623,45.2198,5.7889)) # ganz Grenoble
     #G=read_osm(download_osm(45.1919,5.7632,45.1951,5.7679))
     #plot([G.node[n]['data'].lat for n in G], [G.node[n]['data'].lon for n in G], ',')
     networkx.draw(G)
