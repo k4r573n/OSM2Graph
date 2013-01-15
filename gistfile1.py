@@ -28,12 +28,12 @@ def download_osm(left,bottom,right,top):
     #url = "http://api.openstreetmap.org/api/0.6/map?bbox=" + bbox
     
     url = "http://overpass-api.de/api/interpreter?data=" + urllib.quote("(way("+ bbox + ")[highway];>;);out;")
-    print url
     
     #url = "data.osm"
     #url = "graph_in_OSM.osm"
-    url = "tram_B.osm"
+    url = "tram_B2.osm"
     #url = "grenoble_highway.osm"
+    print url
     fp = urlopen( url )
     #fp = urlopen('http://overpass-api.de/api/interpreter?data=%28nodes%28' + bbox + '%29%3B%3C%3B%29%3Bout%20body%3B%0A' )
     return fp
@@ -279,47 +279,85 @@ class OSM:
             tw = None
             # to turn the ways in the right direction
             last_node = None
+            last_way = None
             for old_wayid in r.ways:
+                print "\ntry adding Way["+str(old_wayid)+"]"
                 # TODO handle old ways as a way?
-                #bring the nodes in the right order
-                nds = [self.ways[wayid] for wayid in self.vways[old_wayid]]
+                #mearch all nodes from the original way to nds
+                nds = []
+                
+                #first node out of first way
+                fnode = self.ways[self.vways[old_wayid][0]].nds[0]
+                #last node out of last way
+                lnode = self.ways[self.vways[old_wayid][-1]].nds[-1]
 
+                invert = False
+                #check if node order is wrong
+                print "ln: "+ str(last_node)+ "\tn0: "+str(fnode)+"\tn-1: "+str(lnode)
                 if not last_node==None:
-                    if last_node==nds[0]:
-                        nds = nds
-                    elif last_node==nds[-1]:
-                        nds = nds[::-1]
+                    if last_node==fnode:
+                        invert = False
+                    elif last_node==lnode:
+                        invert = True
                     else:#ERROR
-                        print "ERROR: Route ["+str(r.id)+"] in Way ["+str(wayid)+"] is not connected to the previous"
+                        print "ERROR: Route ["+str(r.id)+"] in Way ["+str(old_wayid)+"] is not connected to the previous Way ["+str(last_way)+"]"
+                        print "The Nodes of Way["+str(old_wayid)+"] are: "+str(nds)
                 else:
-                    nds = nds
-                last_node = nds[-1]
+                    invert = False
 
-                #skip if last stop was already reached
-                if i>len(r.stops):
-                    continue
+                last_node = lnode
+                last_way = old_wayid
 
-                if r.stops[i] in nds:
+                if invert:
+                    part_ways = self.vways[old_wayid][::-1]
+                else:
+                    part_ways = self.vways[old_wayid]
 
-                    # create a new way from now on
-                    if not tw==None:
-                        tw.nds.append(nds[:nds.index(r.stops[i])])#add all nodes up to the new stop_position
-                        new_ways[tw.id] = tw
+                #TODO
+                #the next part hast to operate on the splitted ways
+                for wayid in part_ways:
+                    if invert:
+                        nds = self.ways[wayid].nds[::-1]
+                    else:
+                        nds = self.ways[wayid].nds
 
-                        way_no += 1
+                    #skip if last stop was already reached
+                    if i>len(r.stops):
+                        continue
+                    #TODO next block recheck and to finish
+                    #there are 2 diffrent edges possible in kinds of stop position 0-x, 1-x
+                    #and it might be a continuing or the first edge
+                    if tw==None:
+                        if r.stops[i]==nds[0]:
+                            #its a new edge
+                            tw = Way('special'+str(way_no),None) 
+                            tw.tags = r.tags;
+                            tw.tags['highway']= route_type
+                            tw.nds = nds #all nodes have to belong to the edge cause way was split on stops
 
-                    tw = Way('special'+str(way_no)) #TODO
-                    tw.tags = r.tags.append({'highway': route_type})
-                    tw.nds = nds[nds.index(r.stops[i]):]#all nodes beginning with the stop
+                            i += 1#jump to next stop_position
+                    else:
+                        if r.stops[i]==nds[0]:
+                            #stop the last edge 
+                            new_ways[tw.id] = tw
+                            way_no += 1
 
-                    i += 1#jump to next stop_position
-                elif not tw==None:
-                    # add all nodes to tw if tw!=None
-                    tw.nds.append(nds)
-                else: #befor first station - nothing to add
-                    continue
+                            #and start a new one
+                            tw = Way('special'+str(way_no),None) 
+                            tw.tags = r.tags;
+                            tw.tags['highway']= route_type
+                            tw.nds = nds #all nodes have to belong to the edge cause way was split on stops
 
-        self.ways.append(new_ways)
+                            i += 1#jump to next stop_position
+                        else:
+                            #just continue the last edge
+                            tw.nds.extend(nds)
+                        
+
+                        print "waypart info: stop ["+r.stops[i]+"] \tn0: "+str(nds[0])+"\tn-1: "+str(nds[-1])
+
+
+        self.ways.update(new_ways)
 
 
     #calcs the waylength in km
@@ -334,6 +372,7 @@ class OSM:
             # copyed from
             # http://stackoverflow.com/questions/5260423/torad-javascript-function-throwing-error
             R = 6371 # km
+            print "node cl: "+str(node)
             dLat = (lastnode.lat - self.nodes[node].lat) * math.pi / 180
             dLon = (lastnode.lon - self.nodes[node].lon) * math.pi / 180
             lat1 = self.nodes[node].lat * math.pi / 180
