@@ -32,7 +32,8 @@ def download_osm(left,bottom,right,top):
     
     #url = "data.osm"
     #url = "graph_in_OSM.osm"
-    url = "tram_B2.osm"
+    #url = "tram_B2.osm"
+    url = "hw_tram_bus.osm"
     #url = "grenoble_highway.osm"
     print url
     fp = urlopen( url )
@@ -58,19 +59,19 @@ def read_osm(filename_or_stream, only_roads=True):
     """
     osm = OSM(filename_or_stream)
     G = networkx.Graph()
-
-    for w in osm.ways.itervalues():
-        if only_roads and 'highway' not in w.tags:
-            continue
-        #G.add_path(w.nds, id=w.id, data=w) #problematic becase of to big graph
-        #G.add_edge(w.nds[0],w.nds[-1])
-        G.add_weighted_edges_from([(w.nds[0],w.nds[-1],osm.calclength(w))])
-    for n_id in G.nodes_iter():
-        n = osm.nodes[n_id]
-        G.node[n_id] = dict(data=n)
+#
+#    for w in osm.ways.itervalues():
+#        if only_roads and 'highway' not in w.tags:
+#            continue
+#        #G.add_path(w.nds, id=w.id, data=w) #problematic becase of to big graph
+#        #G.add_edge(w.nds[0],w.nds[-1])
+#        G.add_weighted_edges_from([(w.nds[0],w.nds[-1],osm.calclength(w))])
+#    for n_id in G.nodes_iter():
+#        n = osm.nodes[n_id]
+#        G.node[n_id] = dict(data=n)
     
     osm.export("export.osm")
-    #osm.convert2mat()
+    osm.convert2mat()
     return G
         
     
@@ -260,11 +261,11 @@ class OSM:
                 elif name=='nd':
                     self.currElem.nds.append( attrs['ref'] )
                 elif name=='member':
-                    if attrs['role'].split(':')[0]=='stop':
+                    if attrs['role'].split(':')[0]=='stop' and attrs['type'] == 'node':
                         self.currElem.stops.append( attrs['ref'] )
-                    elif attrs['role'].split(':')[0]=='platform':
+                    elif attrs['role'].split(':')[0]=='platform' and attrs['type'] == 'node':
                         self.currElem.platforms.append( attrs['ref'] )
-                    elif attrs['role'].split(':')[0] in ['forward', 'backward', '']:
+                    elif attrs['role'].split(':')[0] in ['forward', 'backward', ''] and not attrs['type'] == 'node':
                         self.currElem.ways.append( attrs['ref'] )
                     #else:
                         #ignore it
@@ -287,6 +288,15 @@ class OSM:
         self.nodes = nodes
         self.ways = ways
         self.routes = routes
+
+        print "read ready"
+        print "nodes: "+str(len(nodes))
+        print "ways: "+str(len(ways))
+        print "routes: "+str(len(routes))+"\n"
+
+        #old_wayid:1887378594  the number is a node ID and not for a way
+        #print ways[1887378594].nds
+        print ways['171500582'].nds
             
         """ prepare ways for routing """
         #count times each node is used
@@ -308,6 +318,10 @@ class OSM:
         for id, way in self.ways.iteritems():
             split_ways = way.split(node_histogram)
             vways[way.id]=[]#lockup to convert old to new ids
+            if way.id == 1887378594:
+                print 'be careful'
+                print split_ways
+
             for split_way in split_ways:
                 new_ways[split_way.id] = split_way
                 vways[way.id].append(split_way.id)
@@ -315,6 +329,11 @@ class OSM:
         self.vways = vways
         #for i in self.ways.itervalues():
           #print i.id
+#TODO rm
+        #print self.vways['171500582']
+        #for wid in self.vways['171500582']:
+        #    print self.ways[wid].nds
+        #print self.ways['171500582']
 
         """ prepare routes for routing """
         new_ways = {}
@@ -333,12 +352,19 @@ class OSM:
                 nds = []
                 
                 #first node out of first way
-                fnode = self.ways[self.vways[old_wayid][0]].nds[0]
+#TODO Clean
+                try:
+                    fnode = self.ways[self.vways[old_wayid][0]].nds[0]
+                except Exception, e:
+                     import traceback
+                     print traceback.format_exc()
+                     print "old_wayid:"+str(old_wayid)
+
                 #last node out of last way
                 lnode = self.ways[self.vways[old_wayid][-1]].nds[-1]
 
-                invert = False
                 #check if node order is wrong
+                invert = False
                 print "ln: "+ str(last_node)+ "\tn0: "+str(fnode)+"\tn-1: "+str(lnode)
                 if not last_node==None:
                     if last_node==fnode:
@@ -347,7 +373,6 @@ class OSM:
                         invert = True
                     else:#ERROR
                         print "ERROR: Route ["+str(r.id)+"] in Way ["+str(old_wayid)+"] is not connected to the previous Way ["+str(last_way)+"]"
-                        print "The Nodes of Way["+str(old_wayid)+"] are: "+str(nds)
                 else:
                     invert = False
 
@@ -366,9 +391,13 @@ class OSM:
                     else:
                         nds = self.ways[wayid].nds
 
+                    #if old_wayid=='171500582':
+                    #    print "nds of partway"
+                    #    print nds
+
                     #skip if last stop was already reached
-                    if i>len(r.stops):
-                        continue
+                    if i>=len(r.stops):
+                        break
                     #there are 2 diffrent edges possible in kinds of stop position 0-x, 1-x
                     #and it might be a continuing or the first edge
                     if tw==None:
@@ -398,7 +427,7 @@ class OSM:
                             tw.nds.extend(nds)
                         
 
-                        print "waypart info: stop ["+r.stops[i]+"] \tn0: "+str(nds[0])+"\tn-1: "+str(nds[-1])
+                    print "waypart info: stop ["+r.stops[i-1]+"] \tn0: "+str(nds[0])+"\tn-1: "+str(nds[-1])
 
 
         self.ways.update(new_ways)
@@ -501,19 +530,19 @@ class OSM:
       f.close()
 
 #exports to osm xml
-  def export(self,filename):
-    fp = open(filename, "w")
-    x = XMLGenerator(fp, "UTF-8")
-    x.startDocument()
-    x.startElement('osm',{"version":"0.6","generator":"crazy py script"})
-    for w in self.ways.itervalues():
-        if not 'highway' in w.tags:
-            continue
-        for nid in w.nds:
-            self.nodes[nid].toOSM(x)
-        w.toOSM(x)
-    x.endElement('osm')
-    x.endDocument()
+    def export(self,filename):
+      fp = open(filename, "w")
+      x = XMLGenerator(fp, "UTF-8")
+      x.startDocument()
+      x.startElement('osm',{"version":"0.6","generator":"crazy py script"})
+      for w in self.ways.itervalues():
+          if not 'highway' in w.tags:
+              continue
+          for nid in w.nds:
+              self.nodes[nid].toOSM(x)
+          w.toOSM(x)
+      x.endElement('osm')
+      x.endDocument()
 
 
 def main(argv=None):
