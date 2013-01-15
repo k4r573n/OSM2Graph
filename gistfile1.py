@@ -144,7 +144,7 @@ class Node:
             x.startDocument()
             x.startElement('osm',{"version":"0.6"})
 
-        x.startElement('node',{"id":self.id, "lat":str(self.lat), "lon":str(self.lon)})
+        x.startElement('node',{"id":self.id, "lat":str(self.lat), "lon":str(self.lon), "visible":"true"})
         for k, v in self.tags.iteritems():
             x.startElement('tag',{"k":k, "v":v})
             x.endElement('tag')
@@ -160,7 +160,7 @@ class Way:
         self.nds = []
         self.tags = {}
 
-    def split(self, dividers):
+    def split(self, dividers,ec):
         # slice the node-array using this nifty recursive function
         def slice_array(ar, dividers):
             for i in range(1,len(ar)-1):
@@ -178,13 +178,12 @@ class Way:
         
         # create a way object for each node-array slice
         ret = []
-        i=0
         for slice in slices:
             littleway = copy.copy( self )
-            littleway.id += "-%d"%i
+            littleway.id += "-"+str(ec)
             littleway.nds = slice
             ret.append( littleway )
-            i += 1
+            ec += 1
             
         return ret
 
@@ -199,10 +198,10 @@ class Way:
             x.startDocument()
             x.startElement('osm',{"version":"0.6"})
 
-        #x.startElement('way',{"id":"-"+self.id.replace("-","").replace("special","")})
+        x.startElement('way',{"id":"-"+self.id.split("-",2)[1]})
         
         #bad but for rendering ok
-        x.startElement('way',{"id":"-"+self.id.replace("special","").split("-",2)[0]})
+        #x.startElement('way',{"id":self.id.replace("special","").split("-",2)[0]})
         for nid in self.nds:
             x.startElement('nd',{"ref":nid})
             x.endElement('nd')
@@ -292,6 +291,9 @@ class OSM:
         self.ways = ways
         self.routes = routes
 
+        # edge counter - to generate new edge ids
+        ec = 0
+
         print "read ready"
         print "\nnodes: "+str(len(nodes))
         print "ways: "+str(len(ways))
@@ -316,7 +318,8 @@ class OSM:
         #use that histogram to split all ways, replacing the member set of ways
         new_ways = {}
         for id, way in self.ways.iteritems():
-            split_ways = way.split(node_histogram)
+            split_ways = way.split(node_histogram,ec)
+            ec += len(split_ways) #increase the counter 
             vways[way.id]=[]#lockup to convert old to new ids
             for split_way in split_ways:
                 new_ways[split_way.id] = split_way
@@ -327,7 +330,6 @@ class OSM:
         """ prepare routes for routing """
         new_ways = {}
         i = 0
-        way_no = 0
         for r in self.routes.itervalues():
             route_type = r.tags['route']
             tw = None
@@ -380,7 +382,7 @@ class OSM:
                     if tw==None:
                         if r.stops[i]==nds[0]:
                             #its a new edge
-                            tw = Way('special'+str(way_no),None) 
+                            tw = Way('special-'+str(ec),None) 
                             tw.tags = r.tags;
                             tw.tags.update({'highway':route_type})
                             tw.nds = nds #all nodes have to belong to the edge cause way was split on stops
@@ -390,10 +392,10 @@ class OSM:
                         if r.stops[i]==nds[0]:
                             #stop the last edge 
                             new_ways[tw.id] = tw
-                            way_no += 1
+                            ec += 1
 
                             #and start a new one
-                            tw = Way('special'+str(way_no),None) 
+                            tw = Way('special-'+str(ec),None) 
                             tw.tags = r.tags;
                             tw.tags['highway']= route_type
                             tw.nds = nds #all nodes have to belong to the edge cause way was split on stops
@@ -438,6 +440,7 @@ class OSM:
 
     #return method for usage in matlab
     def convert2mat(self):
+      print "matlab export..."
       vertexes = []
       edges = []
       node_lu = {}
@@ -509,19 +512,37 @@ class OSM:
 
 #exports to osm xml
     def export(self,filename):
+      print "osm-xml export..."
       fp = open(filename, "w")
       x = XMLGenerator(fp, "UTF-8")
       x.startDocument()
       x.startElement('osm',{"version":"0.6","generator":"crazy py script"})
+      #TODO optimize this
+      for n in self.nodes.itervalues():
+              n.toOSM(x)
+
       for w in self.ways.itervalues():
           if not 'highway' in w.tags:
               continue
-          for nid in w.nds:
-              self.nodes[nid].toOSM(x)
           w.toOSM(x)
       x.endElement('osm')
       x.endDocument()
 
+#returns a nice graph
+    def graph(self,only_roads=True):
+      G = networkx.Graph()
+
+      for w in self.ways.itervalues():
+          if only_roads and 'highway' not in w.tags:
+              continue
+          #G.add_path(w.nds, id=w.id, data=w) #problematic becase of to big graph
+          #G.add_edge(w.nds[0],w.nds[-1])
+          G.add_weighted_edges_from([(w.nds[0],w.nds[-1],self.calclength(w))])
+      for n_id in G.nodes_iter():
+          n = self.nodes[n_id]
+          G.node[n_id] = dict(data=n)
+      
+      return G
 
 def main(argv=None):
     print "hallosn"
@@ -549,14 +570,14 @@ def main(argv=None):
     fp = urlopen( url )
     osm = OSM(fp)
     osm.export("export.osm")
-    osm.convert2mat()
+    #osm.convert2mat()
 
     #G=read_osm(download_osm(45.1356,5.6623,45.2198,5.7889)) # ganz Grenoble
-    #G=read_osm(download_osm(45.1919,5.7632,45.1951,5.7679))
+    #G=osm.graph()
     #plot([G.node[n]['data'].lat for n in G], [G.node[n]['data'].lon for n in G], ',')
     #networkx.draw(G)
     #networkx.draw_random(G)
-    #plt.show()
+    plt.show()
     #plt.savefig("path.png")
     #print [G.node[n]['data'].lat for n in G]
 
