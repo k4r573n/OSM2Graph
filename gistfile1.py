@@ -32,7 +32,8 @@ def download_osm(left,bottom,right,top):
     
     #url = "data.osm"
     #url = "graph_in_OSM.osm"
-    url = "grenoble_highway.osm"
+    url = "tram_B.osm"
+    #url = "grenoble_highway.osm"
     fp = urlopen( url )
     #fp = urlopen('http://overpass-api.de/api/interpreter?data=%28nodes%28' + bbox + '%29%3B%3C%3B%29%3Bout%20body%3B%0A' )
     return fp
@@ -99,7 +100,7 @@ class Edge:
             self.access_bike = 0
 
     def toString(self):
-        return "" + str(self.dest) + ", '" + self.name + "', " + str(self.length) + ", " + str(self.highway) + ", " + str(self.access_foot) + ", " + str(self.access_bike) + ";"
+        return "" + str(self.dest) + ", '" + self.name.replace("'", "''") + "', " + str(self.length) + ", " + str(self.highway) + ", " + str(self.access_foot) + ", " + str(self.access_bike) + ";"
 
 class Vertex:
     def __init__(self, id, lon, lat, eds, tags):
@@ -119,7 +120,7 @@ class Vertex:
     def toString(self):
         tempe = [str(i) for i in self.eds] + ["0"]*(10 - len(self.eds))
         edges = ", ".join(tempe)
-        return "'"+self.name + "', " + edges + ", " + str(self.lon) + ", " + str(self.lat) + ", " + str(self.id) +  ";"
+        return "'"+self.name.replace("'", "''") + "', " + edges + ", " + str(self.lon) + ", " + str(self.lat) + ", " + str(self.id) +  ";"
 
 
 class Node:
@@ -163,12 +164,24 @@ class Way:
             i += 1
             
         return ret
+
+class Route:
+    # only for relations with type=route
+    def __init__(self, id, osm):
+        self.osm = osm
+        self.id = id
+        self.stops = []
+        self.platforms = []
+        self.ways = []
+        self.tags = {}
         
 class OSM:
     def __init__(self, filename_or_stream):
         """ File can be either a filename or stream/file object."""
-        nodes = {}
-        ways = {}
+        nodes = {} # node objects
+        ways = {}# way objects
+        vways ={}# old ID: [list of new way IDs] to use relations
+        routes = {} # to store the route relations
         
         superself = self
         
@@ -191,10 +204,23 @@ class OSM:
                     self.currElem = Node(attrs['id'], float(attrs['lon']), float(attrs['lat']))
                 elif name=='way':
                     self.currElem = Way(attrs['id'], superself)
+                elif name=='relation':
+                    # important to ensure that nur relations of the type route are in the input file
+                    # TODO fix it later to work generly
+                    self.currElem = Route(attrs['id'], superself)
                 elif name=='tag':
                     self.currElem.tags[attrs['k']] = attrs['v']
                 elif name=='nd':
                     self.currElem.nds.append( attrs['ref'] )
+                elif name=='member':
+                    if attrs['role'].split(':')[0]=='stop':
+                        self.currElem.stops.append( attrs['ref'] )
+                    elif attrs['role'].split(':')[0]=='platform':
+                        self.currElem.platforms.append( attrs['ref'] )
+                    elif attrs['role'].split(':')[0] in ['forward', 'backward', '']:
+                        self.currElem.ways.append( attrs['ref'] )
+                    #else:
+                        #ignore it
                 
             @classmethod
             def endElement(self,name):
@@ -202,6 +228,8 @@ class OSM:
                     nodes[self.currElem.id] = self.currElem
                 elif name=='way':
                     ways[self.currElem.id] = self.currElem
+                elif name=='relation':
+                    routes[self.currElem.id] = self.currElem
                 
             @classmethod
             def characters(self, chars):
@@ -211,7 +239,9 @@ class OSM:
         
         self.nodes = nodes
         self.ways = ways
+        self.routes = routes
             
+        """ prepare ways for routing """
         #count times each node is used
         node_histogram = dict.fromkeys( self.nodes.keys(), 0 )
         for way in self.ways.values():
@@ -219,15 +249,78 @@ class OSM:
                 del self.ways[way.id]
             else:
                 for node in way.nds:
-                    node_histogram[node] += 1
+                    #count public_transport=stop_position extra (to ensure a way split there)
+                    if 'public_transport' in nodes[node].tags and nodes[node].tags['public_transport']=='stop_position':
+                        node_histogram[node] += 2
+                    else:
+                        node_histogram[node] += 1
+
         
         #use that histogram to split all ways, replacing the member set of ways
         new_ways = {}
         for id, way in self.ways.iteritems():
             split_ways = way.split(node_histogram)
+            vways[way.id]=[]#lockup to convert old to new ids
             for split_way in split_ways:
                 new_ways[split_way.id] = split_way
+                vways[way.id].append(split_way.id)
         self.ways = new_ways
+        self.vways = vways
+        #for i in self.ways.itervalues():
+          #print i.id
+
+        """ prepare routes for routing """
+        # TODO a lot
+        new_ways = {}
+        i = 0
+        way_no = 0
+        for r in self.routes.itervalues():
+            route_type = r.tags['route']
+            tw = None
+            # to turn the ways in the right direction
+            last_node = None
+            for old_wayid in r.ways:
+                # TODO handle old ways as a way?
+                #bring the nodes in the right order
+                nds = [self.ways[wayid] for wayid in self.vways[old_wayid]]
+
+                if not last_node==None:
+                    if last_node==nds[0]:
+                        nds = nds
+                    elif last_node==nds[-1]:
+                        nds = nds[::-1]
+                    else:#ERROR
+                        print "ERROR: Route ["+str(r.id)+"] in Way ["+str(wayid)+"] is not connected to the previous"
+                else:
+                    nds = nds
+                last_node = nds[-1]
+
+                #skip if last stop was already reached
+                if i>len(r.stops):
+                    continue
+
+                if r.stops[i] in nds:
+
+                    # create a new way from now on
+                    if not tw==None:
+                        tw.nds.append(nds[:nds.index(r.stops[i])])#add all nodes up to the new stop_position
+                        new_ways[tw.id] = tw
+
+                        way_no += 1
+
+                    tw = Way('special'+str(way_no)) #TODO
+                    tw.tags = r.tags.append({'highway': route_type})
+                    tw.nds = nds[nds.index(r.stops[i]):]#all nodes beginning with the stop
+
+                    i += 1#jump to next stop_position
+                elif not tw==None:
+                    # add all nodes to tw if tw!=None
+                    tw.nds.append(nds)
+                else: #befor first station - nothing to add
+                    continue
+
+        self.ways.append(new_ways)
+
 
     #calcs the waylength in km
     def calclength(self,way):
@@ -263,6 +356,8 @@ class OSM:
       eid = 0
       nid = 1
       for way in self.ways.itervalues():
+          if 'highway' not in way.tags:
+              continue
           """ create 2 edges for each direction one """
           # add edge with way direction
           eid += 1
@@ -325,7 +420,9 @@ class OSM:
 
 
 def main(argv=None):
-    print "hallo\n"
+    print "hallosn"
+    print sys.argv[0]
+    print "hallosn"
     if argv is None:
         argv = sys.argv
     try:
