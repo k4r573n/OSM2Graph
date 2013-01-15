@@ -10,6 +10,7 @@ http://github.com/bmander/graphserver/tree/master and is copyright (c)
 
 
 import xml.sax
+from xml.sax.saxutils import XMLGenerator
 import copy
 import networkx
 
@@ -67,8 +68,9 @@ def read_osm(filename_or_stream, only_roads=True):
     for n_id in G.nodes_iter():
         n = osm.nodes[n_id]
         G.node[n_id] = dict(data=n)
-
-    osm.convert2mat()
+    
+    osm.export("export.osm")
+    #osm.convert2mat()
     return G
         
     
@@ -129,6 +131,26 @@ class Node:
         self.lon = lon
         self.lat = lat
         self.tags = {}
+
+    # creats a osm-xml way object
+    def toOSM(self,x):
+        # Generate SAX events
+        frame = False
+        if x == None :
+            frame=True
+            # Start Document
+            x = XMLGenerator(sys.stdout, "UTF-8")
+            x.startDocument()
+            x.startElement('osm',{"version":"0.6"})
+
+        x.startElement('node',{"id":self.id, "lat":str(self.lat), "lon":str(self.lon)})
+        for k, v in self.tags.iteritems():
+            x.startElement('tag',{"k":k, "v":v})
+            x.endElement('tag')
+        x.endElement('node')
+        if frame:
+            x.endElement('osm')
+            x.endDocument()
         
 class Way:
     def __init__(self, id, osm):
@@ -164,6 +186,31 @@ class Way:
             i += 1
             
         return ret
+
+    # creats a osm-xml way object
+    def toOSM(self,x):
+        # Generate SAX events
+        frame = False
+        if x == None :
+            frame=True
+            # Start Document
+            x = XMLGenerator(sys.stdout, "UTF-8")
+            x.startDocument()
+            x.startElement('osm',{"version":"0.6"})
+
+        x.startElement('way',{"id":"-"+self.id.replace("-","").replace("special","")})
+        for nid in self.nds:
+            x.startElement('nd',{"ref":nid})
+            x.endElement('nd')
+        for k, v in self.tags.iteritems():
+            x.startElement('tag',{"k":k, "v":v})
+            x.endElement('tag')
+        x.endElement('way')
+        if frame:
+            x.endElement('osm')
+            x.endDocument()
+
+
 
 class Route:
     # only for relations with type=route
@@ -270,7 +317,6 @@ class OSM:
           #print i.id
 
         """ prepare routes for routing """
-        # TODO a lot
         new_ways = {}
         i = 0
         way_no = 0
@@ -313,7 +359,6 @@ class OSM:
                 else:
                     part_ways = self.vways[old_wayid]
 
-                #TODO
                 #the next part hast to operate on the splitted ways
                 for wayid in part_ways:
                     if invert:
@@ -324,7 +369,6 @@ class OSM:
                     #skip if last stop was already reached
                     if i>len(r.stops):
                         continue
-                    #TODO next block recheck and to finish
                     #there are 2 diffrent edges possible in kinds of stop position 0-x, 1-x
                     #and it might be a continuing or the first edge
                     if tw==None:
@@ -332,7 +376,7 @@ class OSM:
                             #its a new edge
                             tw = Way('special'+str(way_no),None) 
                             tw.tags = r.tags;
-                            tw.tags['highway']= route_type
+                            tw.tags.update({'highway':route_type})
                             tw.nds = nds #all nodes have to belong to the edge cause way was split on stops
 
                             i += 1#jump to next stop_position
@@ -372,7 +416,6 @@ class OSM:
             # copyed from
             # http://stackoverflow.com/questions/5260423/torad-javascript-function-throwing-error
             R = 6371 # km
-            print "node cl: "+str(node)
             dLat = (lastnode.lat - self.nodes[node].lat) * math.pi / 180
             dLon = (lastnode.lon - self.nodes[node].lon) * math.pi / 180
             lat1 = self.nodes[node].lat * math.pi / 180
@@ -456,6 +499,21 @@ class OSM:
         f.write( v.toString() +"\n")
       f.write( "}\n")
       f.close()
+
+#exports to osm xml
+  def export(self,filename):
+    fp = open(filename, "w")
+    x = XMLGenerator(fp, "UTF-8")
+    x.startDocument()
+    x.startElement('osm',{"version":"0.6","generator":"crazy py script"})
+    for w in self.ways.itervalues():
+        if not 'highway' in w.tags:
+            continue
+        for nid in w.nds:
+            self.nodes[nid].toOSM(x)
+        w.toOSM(x)
+    x.endElement('osm')
+    x.endDocument()
 
 
 def main(argv=None):
