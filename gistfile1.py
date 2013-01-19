@@ -1,6 +1,8 @@
 """
 Read graphs in Open Street Maps osm format
 
+Based on gistfile1.py by Abraham Flaxman from
+https://gist.github.com/287370/2fa6c2e1b3839e5bb367b806825da9b40f06869://gist.github.com/287370/2fa6c2e1b3839e5bb367b806825da9b40f068695
 Based on osm.py from brianw's osmgeocode
 http://github.com/brianw/osmgeocode, which is based on osm.py from
 comes from Graphserver:
@@ -15,115 +17,23 @@ import copy
 import networkx
 
 import sys
-import getopt
+#import getopt
+import argparse
+from urllib import urlopen
 
 import matplotlib.pyplot as plt
 
 import math
 import urllib
 
-def download_osm(left,bottom,right,top):
+def getHighways(left,bottom,right,top):
     """ Return a filehandle to the downloaded data."""
-    from urllib import urlopen
     bbox = "%f,%f,%f,%f"%(left,bottom,right,top)
-    #url = "http://api.openstreetmap.org/api/0.6/map?bbox=" + bbox
     
     url = "http://overpass-api.de/api/interpreter?data=" + urllib.quote("(way("+ bbox + ")[highway];>;);out;")
-    
-    #url = "data.osm"
-    #url = "graph_in_OSM.osm"
-    #url = "tram_B2.osm"
-    url = "hw_tram_bus.osm"
-    #url = "grenoble_highway.osm"
     print url
     fp = urlopen( url )
-    #fp = urlopen('http://overpass-api.de/api/interpreter?data=%28nodes%28' + bbox + '%29%3B%3C%3B%29%3Bout%20body%3B%0A' )
     return fp
-
-def read_osm(filename_or_stream, only_roads=True):
-    """Read graph in OSM format from file specified by name or by stream object.
-
-    Parameters
-    ----------
-    filename_or_stream : filename or stream object
-
-    Returns
-    -------
-    G : Graph
-
-    Examples
-    --------
-    >>> G=nx.read_osm(nx.download_osm(-122.33,47.60,-122.31,47.61))
-    >>> plot([G.node[n]['data'].lat for n in G], [G.node[n]['data'].lon for n in G], ',')
-
-    """
-    osm = OSM(filename_or_stream)
-    G = networkx.Graph()
-#
-#    for w in osm.ways.itervalues():
-#        if only_roads and 'highway' not in w.tags:
-#            continue
-#        #G.add_path(w.nds, id=w.id, data=w) #problematic becase of to big graph
-#        #G.add_edge(w.nds[0],w.nds[-1])
-#        G.add_weighted_edges_from([(w.nds[0],w.nds[-1],osm.calclength(w))])
-#    for n_id in G.nodes_iter():
-#        n = osm.nodes[n_id]
-#        G.node[n_id] = dict(data=n)
-    
-    osm.export("export.osm")
-    osm.convert2mat()
-    return G
-        
-    
-class Edge:
-    def __init__(self, eid, wayid, nds, tags, length):
-        self.orgid = wayid
-        self.id = eid
-        self.dest = nds[-1]
-        if "name" in tags:
-            self.name = tags["name"]
-        else:
-            self.name = "no name"
-
-        self.length = length
-
-        hw={'footway':1, 'cycleway':2, 'path':1, 'residental':4,'motorway':3,'trunk':3,'motorway_link':3,'primary':3,
-                'secondary':3, 'tertiary':4, 'living_street':4, 'unclassified':4, 'service':4, 'track':2, 'steps':1,
-                'bus':5, 'tram':6}
-        if "highway" in tags and tags["highway"] in hw:
-            self.highway = hw[tags["highway"]]
-        else:
-            self.highway = 1# if unknown its a footway
-
-        self.access_foot = 1
-        if "foot" in tags and tags["foot"] == "no":
-            self.access_foot = 0
-        self.access_bike = 1
-        if "bicycle" in tags and tags["bicycle"] == "no":
-            self.access_bike = 0
-
-    def toString(self):
-        return "" + str(self.dest) + ", '" + self.name.replace("'", "''") + "', " + str(self.length) + ", " + str(self.highway) + ", " + str(self.access_foot) + ", " + str(self.access_bike) + ";"
-
-class Vertex:
-    def __init__(self, id, lon, lat, eds, tags):
-        self.id = id
-        self.lon = lon
-        self.lat = lat
-        self.eds = []
-        if "name" in tags:
-            self.name = tags["name"]
-        else:
-            self.name = "no name"
-        self.tags = {}
-
-    def add_edge(self, edge):
-        self.eds.append(edge)
-
-    def toString(self):
-        tempe = [str(i) for i in self.eds] + ["0"]*(10 - len(self.eds))
-        edges = ", ".join(tempe)
-        return "'"+self.name.replace("'", "''") + "', " + edges + ", " + str(self.lon) + ", " + str(self.lat) + ", " + str(self.id) +  ";"
 
 
 class Node:
@@ -226,14 +136,19 @@ class Route:
         self.tags = {}
         
 class OSM:
+    """ will parse a osm xml file and provide diffrent export functions"""
     def __init__(self, filename_or_stream):
         """ File can be either a filename or stream/file object."""
+        print "Start reading input..."
         nodes = {} # node objects
         ways = {}# way objects
         vways ={}# old ID: [list of new way IDs] to use relations
         routes = {} # to store the route relations
         
         superself = self
+
+        # error counter
+        errors = 0
         
         class OSMHandler(xml.sax.ContentHandler):
             @classmethod
@@ -294,7 +209,7 @@ class OSM:
         # edge counter - to generate new edge ids
         ec = 0
 
-        print "read ready"
+        print "file reading finished"
         print "\nnodes: "+str(len(nodes))
         print "ways: "+str(len(ways))
         print "routes: "+str(len(routes))+"\n"
@@ -328,10 +243,13 @@ class OSM:
         self.vways = vways
 
         """ prepare routes for routing """
+#TODO make it more flexable to import really a bus/tram route
         new_ways = {}
         i = 0
         for r in self.routes.itervalues():
             route_type = r.tags['route']
+            print route_type
+
             tw = None
             # to turn the ways in the right direction
             last_node = None
@@ -355,7 +273,9 @@ class OSM:
                     elif last_node==lnode:
                         invert = True
                     else:#ERROR
-                        print "ERROR: Route ["+str(r.id)+"] in Way ["+str(old_wayid)+"] is not connected to the previous Way ["+str(last_way)+"]"
+                        errors += 1
+#idee to skip a route if an error was found
+                        print "ERROR "+str(errors)+": Route ["+str(r.id)+"] in Way ["+str(old_wayid)+"] is not connected to the previous Way ["+str(last_way)+"]"
                 else:
                     invert = False
 
@@ -384,7 +304,7 @@ class OSM:
                             #its a new edge
                             tw = Way('special-'+str(ec),None) 
                             tw.tags = r.tags;
-                            tw.tags.update({'highway':route_type})
+                            tw.tags['highway']=route_type
                             tw.nds = nds #all nodes have to belong to the edge cause way was split on stops
 
                             i += 1#jump to next stop_position
@@ -410,6 +330,7 @@ class OSM:
 
 
         self.ways.update(new_ways)
+        print str(errors)+" Errors found\n"
 
 
     #calcs the waylength in km
@@ -441,6 +362,56 @@ class OSM:
     #return method for usage in matlab
     def convert2mat(self):
       print "matlab export..."
+      class Edge:
+          def __init__(self, eid, wayid, nds, tags, length):
+              self.orgid = wayid
+              self.id = eid
+              self.dest = nds[-1]
+              if "name" in tags:
+                  self.name = tags["name"]
+              else:
+                  self.name = "no name"
+
+              self.length = length
+
+              hw={'footway':1, 'cycleway':2, 'path':1, 'residental':4,'motorway':3,'trunk':3,'motorway_link':3,'primary':3,
+                      'secondary':3, 'tertiary':4, 'living_street':4, 'unclassified':4, 'service':4, 'track':2, 'steps':1,
+                      'bus':5, 'tram':6}
+              if "highway" in tags and tags["highway"] in hw:
+                  self.highway = hw[tags["highway"]]
+              else:
+                  self.highway = 1# if unknown its a footway
+
+              self.access_foot = 1
+              if "foot" in tags and tags["foot"] == "no":
+                  self.access_foot = 0
+              self.access_bike = 1
+              if "bicycle" in tags and tags["bicycle"] == "no":
+                  self.access_bike = 0
+
+          def toString(self):
+              return "" + str(self.dest) + ", '" + self.name.replace("'", "''") + "', " + str(self.length) + ", " + str(self.highway) + ", " + str(self.access_foot) + ", " + str(self.access_bike) + ";"
+
+      class Vertex:
+          def __init__(self, id, lon, lat, eds, tags):
+              self.id = id
+              self.lon = lon
+              self.lat = lat
+              self.eds = []
+              if "name" in tags:
+                  self.name = tags["name"]
+              else:
+                  self.name = "no name"
+              self.tags = {}
+
+          def add_edge(self, edge):
+              self.eds.append(edge)
+
+          def toString(self):
+              tempe = [str(i) for i in self.eds] + ["0"]*(10 - len(self.eds))
+              edges = ", ".join(tempe)
+              return "'"+self.name.replace("'", "''") + "', " + edges + ", " + str(self.lon) + ", " + str(self.lat) + ", " + str(self.id) +  ";"
+
       vertexes = []
       edges = []
       node_lu = {}
@@ -487,6 +458,7 @@ class OSM:
           e.dest = node_lu[e.dest]
 
       # print edges matrix
+      print "saved to ./graph.m"
       f = open('graph.m', 'w')
 
       i = 0
@@ -509,6 +481,7 @@ class OSM:
       f.write( "};\n\n")
       f.write("save('graph.mat','edges','nodes','-mat');")
       f.close()
+      print "run 'octave graph.m' to generate graph.mat to load in your program"
 
 #exports to osm xml
     def export(self,filename):
@@ -519,11 +492,15 @@ class OSM:
       x.startElement('osm',{"version":"0.6","generator":"crazy py script"})
       #TODO optimize this
       for n in self.nodes.itervalues():
-              n.toOSM(x)
+          #TODO add in each routing node an information for rendering
+          n.toOSM(x)
 
       for w in self.ways.itervalues():
           if not 'highway' in w.tags:
               continue
+          if not (w.tags['highway']=='bus' or w.tags['highway']=='tram'):
+              continue
+
           w.toOSM(x)
       x.endElement('osm')
       x.endDocument()
@@ -544,46 +521,52 @@ class OSM:
       
       return G
 
-def main(argv=None):
-    print "hallosn"
-    print sys.argv[0]
-    print "hallosn"
-    if argv is None:
-        argv = sys.argv
-    try:
-        try:
-            opts, args = getopt.getopt(argv[1:], "h", ["help"])
-        except getopt.error, msg:
-             raise Usage(msg)
-        # more code, unchanged
-    except Usage, err:
-        print >>sys.stderr, err.msg
-        print >>sys.stderr, "for help use --help"
-        return 2
+def main():
+    parser = argparse.ArgumentParser(\
+             description='This script provides you routable data from the OpenStreetMap Project',
+             epilog="Have fun while usage")
+    #input selection
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument('-f','--filename','--file', help='the path to a local file')
+    group.add_argument("-b", "--bbox", help="an area to download highways in the format 'left,bottom,right,top'")
+    parser.add_argument("-o", "--osm", help="export the routable graph as osm-xml",
+                            action="store_true")
+    parser.add_argument("-m", "--matlab", help="export the routable graph as ugly matlab file",
+                            action="store_true")
+    parser.add_argument("-g", "--graph", help="show the routable graph in a plot - only for smaller ones recomended",
+                            dest="graph", action="store_true")
+#    parser.add_argument("-v", "--verbose", help="increase output verbosity",
+#                            action="store_true")
+    args = parser.parse_args()
 
-    #call the convert function
-    #G=read_osm(download_osm(-122.32,47.60,-122.31,47.61))
-    url = "graph_in_OSM.osm"
-    if len(sys.argv)>1:
-        url = sys.argv[1]
-    from urllib import urlopen
+
+    #get the input
+    url = args.filename
     fp = urlopen( url )
-    osm = OSM(fp)
-    osm.export("export.osm")
-    #osm.convert2mat()
 
-    #G=read_osm(download_osm(45.1356,5.6623,45.2198,5.7889)) # ganz Grenoble
-    #G=osm.graph()
-    #plot([G.node[n]['data'].lat for n in G], [G.node[n]['data'].lon for n in G], ',')
-    #networkx.draw(G)
-    #networkx.draw_random(G)
-    plt.show()
-    #plt.savefig("path.png")
-    #print [G.node[n]['data'].lat for n in G]
+    if args.bbox:
+        [left,bottom,right,top] = args.bbox.split(",")
+        OSM(getHighways(left,bottom,right,top))
+    else:
+        osm = OSM(fp)
+
+    if args.osm:
+        print "OSM-XML file export to 'export.osm'"
+        osm.export("export.osm")
+
+    if args.matlab:
+        print "Export to Matlab"
+        osm.convert2mat()
+
+    if args.graph:
+        print "Show as graph"
+        G=osm.graph()
+        networkx.draw(G)
+        #networkx.draw_random(G)
+        plt.show()
+        #plt.savefig("path.png")
 
 
 
 if __name__ == '__main__':
-    #print >>sys.stdout, "hallo2"
-    print "Starting Programm"
     main()
