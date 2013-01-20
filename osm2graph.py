@@ -17,7 +17,6 @@ import copy
 import networkx
 
 import sys
-#import getopt
 import argparse
 from urllib import urlopen
 
@@ -137,7 +136,7 @@ class Route:
         
 class OSM:
     """ will parse a osm xml file and provide diffrent export functions"""
-    def __init__(self, filename_or_stream):
+    def __init__(self, filename_or_stream, publicTransport=False):
         """ File can be either a filename or stream/file object."""
         print "Start reading input..."
         nodes = {} # node objects
@@ -147,9 +146,6 @@ class OSM:
         
         superself = self
 
-        # error counter
-        errors = 0
-        
         class OSMHandler(xml.sax.ContentHandler):
             @classmethod
             def setDocumentLocator(self,loc):
@@ -224,7 +220,8 @@ class OSM:
             else:
                 for node in way.nds:
                     #count public_transport=stop_position extra (to ensure a way split there)
-                    if 'public_transport' in nodes[node].tags and nodes[node].tags['public_transport']=='stop_position':
+                    if publicTransport and \
+                        'public_transport' in nodes[node].tags and nodes[node].tags['public_transport']=='stop_position':
                         node_histogram[node] += 2
                     else:
                         node_histogram[node] += 1
@@ -242,7 +239,14 @@ class OSM:
         self.ways = new_ways
         self.vways = vways
 
+        self.addPublicTransport(ec)
+
+
+    def addPublicTransport(self,ec):
         """ prepare routes for routing """
+        # error counter
+        errors = 0
+        
 #TODO make it more flexable to import really a bus/tram route
         new_ways = {}
         i = 0
@@ -360,8 +364,8 @@ class OSM:
         return length
 
     #return method for usage in matlab
-    def convert2mat(self):
-      print "matlab export..."
+    def convert2mat(self,filename):
+      print "matlab export to '"+filename+"'"
       class Edge:
           def __init__(self, eid, wayid, nds, tags, length):
               self.orgid = wayid
@@ -458,8 +462,8 @@ class OSM:
           e.dest = node_lu[e.dest]
 
       # print edges matrix
-      print "saved to ./graph.m"
-      f = open('graph.m', 'w')
+      print "saved to '"+filename+"'"
+      f = open(filename, 'w')
 
       i = 0
       f.write("\n%[destination node ID, name, length, highway (1:footway, 2:cycleway, 3:big_street, 4:small_street, 5:bus, 6:tram), footaccess (0/1), bikeaccess (0/1)]\n")
@@ -521,6 +525,36 @@ class OSM:
       
       return G
 
+    #def convert2neo4j(self,folder_to_put_db_in):
+        #"""export in neo4j db formart"""
+#TODO not working now
+        ## http://docs.neo4j.org/chunked/milestone/python-embedded-tutorial-helloworld.html
+#        from neo4j import GraphDatabase
+#        # Create dbdb =
+#        db = GraphDatabase(folder_to_put_db_in)
+#
+#
+#        # Start a transaction
+#        with db.transaction:
+#            # This is inside the transactional
+#            # context. All work done here
+#            # will either entirely succeed,
+#            # or no changes will be applied at all.
+#
+#            for n in self.nodes:
+#                  
+#            # Create a node
+#            node = db.node()
+#            # Give it a name
+#            node['id'] = n.id
+#            node['lon'] = n.lon
+#            node['lat'] = n.lat
+#            node['tags'] = n.tags
+#
+#        # Always shut down your
+#        db.shutdown()
+
+
 def main():
     parser = argparse.ArgumentParser(\
              description='This script provides you routable data from the OpenStreetMap Project',
@@ -529,6 +563,8 @@ def main():
     group = parser.add_mutually_exclusive_group()
     group.add_argument('-f','--filename','--file', help='the path to a local file')
     group.add_argument("-b", "--bbox", help="an area to download highways in the format 'left,bottom,right,top'")
+    parser.add_argument("-t", "--transport", help="Experimental Option! Uses as well public transportation infomation",
+                            action="store_true")
     parser.add_argument("-o", "--osm", help="export the routable graph as osm-xml",
                             action="store_true")
     parser.add_argument("-m", "--matlab", help="export the routable graph as ugly matlab file",
@@ -539,6 +575,7 @@ def main():
 #                            action="store_true")
     args = parser.parse_args()
 
+    #TODO ensure there is always an input
 
     #get the input
     url = args.filename
@@ -546,9 +583,9 @@ def main():
 
     if args.bbox:
         [left,bottom,right,top] = args.bbox.split(",")
-        OSM(getHighways(left,bottom,right,top))
+        OSM(getHighways(left,bottom,right,top),args.transport)
     else:
-        osm = OSM(fp)
+        osm = OSM(fp,args.transport)
 
     if args.osm:
         print "OSM-XML file export to 'export.osm'"
@@ -556,7 +593,7 @@ def main():
 
     if args.matlab:
         print "Export to Matlab"
-        osm.convert2mat()
+        osm.convert2mat("export.m")
 
     if args.graph:
         print "Show as graph"
