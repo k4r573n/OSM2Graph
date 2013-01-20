@@ -122,6 +122,17 @@ class Way:
             x.endElement('osm')
             x.endDocument()
 
+class Relation:
+    # only for relations with type=route
+    def __init__(self, id, osm):
+        self.osm = osm
+        self.id = id
+        # members are a hash in a list (to give them a order) with format
+        # [idx]={id:role}
+        self.mnode = []
+        self.mway = []
+        self.mrelation = []
+        self.tags = {}
 
 
 class Route:
@@ -142,7 +153,7 @@ class OSM:
         nodes = {} # node objects
         ways = {}# way objects
         vways ={}# old ID: [list of new way IDs] to use relations
-        routes = {} # to store the route relations
+        relations = {} # relation objects
         
         superself = self
 
@@ -166,20 +177,24 @@ class OSM:
                 elif name=='way':
                     self.currElem = Way(attrs['id'], superself)
                 elif name=='relation':
-                    # important to ensure that nur relations of the type route are in the input file
-                    # TODO fix it later to work generly
-                    self.currElem = Route(attrs['id'], superself)
+                    self.currElem = Relation(attrs['id'], superself)
                 elif name=='tag':
                     self.currElem.tags[attrs['k']] = attrs['v']
                 elif name=='nd':
                     self.currElem.nds.append( attrs['ref'] )
                 elif name=='member':
-                    if attrs['role'].split(':')[0]=='stop' and attrs['type'] == 'node':
-                        self.currElem.stops.append( attrs['ref'] )
-                    elif attrs['role'].split(':')[0]=='platform' and attrs['type'] == 'node':
-                        self.currElem.platforms.append( attrs['ref'] )
-                    elif attrs['role'].split(':')[0] in ['forward', 'backward', ''] and not attrs['type'] == 'node':
-                        self.currElem.ways.append( attrs['ref'] )
+                    if attrs['type']=='node':
+                        self.currElem.mnode.append({attrs['ref']:attrs['role']})
+                    elif attrs['type']=='way':
+                        self.currElem.mway.append({attrs['ref'] : attrs['role']})
+                    elif attrs['type']=='relation':
+                        self.currElem.mrelation.append({attrs['ref']:attrs['role']})
+#                    if attrs['role'].split(':')[0]=='stop' and attrs['type'] == 'node':
+#                        self.currElem.stops.append( attrs['ref'] )
+#                    elif attrs['role'].split(':')[0]=='platform' and attrs['type'] == 'node':
+#                        self.currElem.platforms.append( attrs['ref'] )
+#                    elif attrs['role'].split(':')[0] in ['forward', 'backward', ''] and not attrs['type'] == 'node':
+#                        self.currElem.ways.append( attrs['ref'] )
                     #else:
                         #ignore it
                 
@@ -190,7 +205,8 @@ class OSM:
                 elif name=='way':
                     ways[self.currElem.id] = self.currElem
                 elif name=='relation':
-                    routes[self.currElem.id] = self.currElem
+                    relations[self.currElem.id] = self.currElem
+                    #routes[self.currElem.id] = self.currElem
                 
             @classmethod
             def characters(self, chars):
@@ -200,7 +216,7 @@ class OSM:
         
         self.nodes = nodes
         self.ways = ways
-        self.routes = routes
+        self.relations = relations
 
         # edge counter - to generate new edge ids
         ec = 0
@@ -208,7 +224,7 @@ class OSM:
         print "file reading finished"
         print "\nnodes: "+str(len(nodes))
         print "ways: "+str(len(ways))
-        print "routes: "+str(len(routes))+"\n"
+        print "relations: "+str(len(relations))+"\n"
 
             
         """ prepare ways for routing """
@@ -239,18 +255,22 @@ class OSM:
         self.ways = new_ways
         self.vways = vways
 
-        self.addPublicTransport(ec)
+        if publicTransport:
+            self.addPublicTransport(ec)
 
 
     def addPublicTransport(self,ec):
-        """ prepare routes for routing """
+        """ prepare route relations for routing """
         # error counter
         errors = 0
         
 #TODO make it more flexable to import really a bus/tram route
         new_ways = {}
-        i = 0
-        for r in self.routes.itervalues():
+        for r in self.relations.itervalues():
+            if not ('route' in r.tags and (r.tags['route']=='tram' or\
+                    r.tags['route']=='bus')):
+                continue
+
             route_type = r.tags['route']
             print route_type
 
@@ -258,8 +278,12 @@ class OSM:
             # to turn the ways in the right direction
             last_node = None
             last_way = None
-            for old_wayid in r.ways:
-                #print "\ntry adding Way["+str(old_wayid)+"]"
+            i = 0
+            #iterates through the items list (convertet from hash)
+            for old_wayid,role in map(lambda t: (t.items()[0]), r.mway):
+                if not (role=='forward' or role=='backward' or role==''):
+                    continue
+                print "\ntry adding Way["+str(old_wayid)+"]"
                 nds = []
                 
                 #first node out of first way
@@ -279,17 +303,25 @@ class OSM:
                     else:#ERROR
                         errors += 1
 #idee to skip a route if an error was found
-                        print "ERROR "+str(errors)+": Route ["+str(r.id)+"] in Way ["+str(old_wayid)+"] is not connected to the previous Way ["+str(last_way)+"]"
+                        print "ERROR "+str(errors)+": Relation ["+str(r.id)+"] in Way ["+str(old_wayid)+"] is not connected to the previous Way ["+str(last_way)+"]"
                 else:
                     invert = False
 
-                last_node = lnode
                 last_way = old_wayid
 
                 if invert:
                     part_ways = self.vways[old_wayid][::-1]
+                    last_node = fnode
                 else:
                     part_ways = self.vways[old_wayid]
+                    last_node = lnode
+
+                #extract stopps
+                stops = []
+                #iterates through the items list (convertet from hash)
+                for nid,role in map(lambda t: (t.items()[0]), r.mnode):
+                    if role.split(':')[0]=='stop':
+                        stops.append(nid)
 
                 #the next part hast to operate on the splitted ways
                 for wayid in part_ways:
@@ -299,12 +331,12 @@ class OSM:
                         nds = self.ways[wayid].nds
 
                     #skip if last stop was already reached
-                    if i>=len(r.stops):
+                    if i>=len(stops):
                         break
                     #there are 2 diffrent edges possible in kinds of stop position 0-x, 1-x
                     #and it might be a continuing or the first edge
                     if tw==None:
-                        if r.stops[i]==nds[0]:
+                        if stops[i]==nds[0]:
                             #its a new edge
                             tw = Way('special-'+str(ec),None) 
                             tw.tags = r.tags;
@@ -313,7 +345,7 @@ class OSM:
 
                             i += 1#jump to next stop_position
                     else:
-                        if r.stops[i]==nds[0]:
+                        if stops[i]==nds[0]:
                             #stop the last edge 
                             new_ways[tw.id] = tw
                             ec += 1
@@ -330,7 +362,7 @@ class OSM:
                             tw.nds.extend(nds)
                         
 
-                    #print "waypart info: stop ["+r.stops[i-1]+"] \tn0: "+str(nds[0])+"\tn-1: "+str(nds[-1])
+                    #print "waypart info: stop ["+stops[i-1]+"] \tn0: "+str(nds[0])+"\tn-1: "+str(nds[-1])
 
 
         self.ways.update(new_ways)
