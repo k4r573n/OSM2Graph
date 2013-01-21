@@ -25,12 +25,18 @@ import matplotlib.pyplot as plt
 import math
 import urllib
 
+verbose = 1
+
+def vprint(stri,level):
+    if verbose >= level:
+        print stri
+
 def getHighways(left,bottom,right,top):
     """ Return a filehandle to the downloaded data."""
     bbox = "%f,%f,%f,%f"%(left,bottom,right,top)
     
     url = "http://overpass-api.de/api/interpreter?data=" + urllib.quote("(way("+ bbox + ")[highway];>;);out;")
-    print url
+    vprint( url,2)
     fp = urlopen( url )
     return fp
 
@@ -41,6 +47,10 @@ class Node:
         self.lon = lon
         self.lat = lat
         self.tags = {}
+
+    def checkTag(self,k,v):
+        return k in self.tags and self.tags[k]==v
+
 
     # creats a osm-xml way object
     def toOSM(self,x):
@@ -74,7 +84,7 @@ class Way:
         def slice_array(ar, dividers):
             for i in range(1,len(ar)-1):
                 if dividers[ar[i]]>1:
-                    #print "slice at %s"%ar[i]
+                    #vprint( "slice at %s"%ar[i],2)
                     left = ar[:i+1]
                     right = ar[i:]
                     
@@ -149,7 +159,7 @@ class OSM:
     """ will parse a osm xml file and provide diffrent export functions"""
     def __init__(self, filename_or_stream, publicTransport=False):
         """ File can be either a filename or stream/file object."""
-        print "Start reading input..."
+        vprint( "Start reading input...",2)
         nodes = {} # node objects
         ways = {}# way objects
         vways ={}# old ID: [list of new way IDs] to use relations
@@ -189,12 +199,6 @@ class OSM:
                         self.currElem.mway.append({attrs['ref'] : attrs['role']})
                     elif attrs['type']=='relation':
                         self.currElem.mrelation.append({attrs['ref']:attrs['role']})
-#                    if attrs['role'].split(':')[0]=='stop' and attrs['type'] == 'node':
-#                        self.currElem.stops.append( attrs['ref'] )
-#                    elif attrs['role'].split(':')[0]=='platform' and attrs['type'] == 'node':
-#                        self.currElem.platforms.append( attrs['ref'] )
-#                    elif attrs['role'].split(':')[0] in ['forward', 'backward', ''] and not attrs['type'] == 'node':
-#                        self.currElem.ways.append( attrs['ref'] )
                     #else:
                         #ignore it
                 
@@ -206,7 +210,6 @@ class OSM:
                     ways[self.currElem.id] = self.currElem
                 elif name=='relation':
                     relations[self.currElem.id] = self.currElem
-                    #routes[self.currElem.id] = self.currElem
                 
             @classmethod
             def characters(self, chars):
@@ -221,10 +224,10 @@ class OSM:
         # edge counter - to generate new edge ids
         ec = 0
 
-        print "file reading finished"
-        print "\nnodes: "+str(len(nodes))
-        print "ways: "+str(len(ways))
-        print "relations: "+str(len(relations))+"\n"
+        vprint( "file reading finished",1)
+        vprint( "\nnodes: "+str(len(nodes)),1)
+        vprint( "ways: "+str(len(ways)),1)
+        vprint( "relations: "+str(len(relations))+"\n",1)
 
             
         """ prepare ways for routing """
@@ -236,8 +239,9 @@ class OSM:
             else:
                 for node in way.nds:
                     #count public_transport=stop_position extra (to ensure a way split there)
-                    if publicTransport and \
-                        'public_transport' in nodes[node].tags and nodes[node].tags['public_transport']=='stop_position':
+                    if publicTransport and (\
+                        nodes[node].checkTag('public_transport','stop_position') or 
+                        nodes[node].checkTag('railway','tram_stop')):
                         node_histogram[node] += 2
                     else:
                         node_histogram[node] += 1
@@ -272,7 +276,15 @@ class OSM:
                 continue
 
             route_type = r.tags['route']
-            print route_type
+            vprint( route_type,2)
+
+            #extract stopps
+            stops = []
+            #iterates through the items list (convertet from hash)
+            for nid,role in map(lambda t: (t.items()[0]), r.mnode):
+                if role.split(':')[0]=='stop':
+                    stops.append(nid)
+            vprint( str(len(stops))+" Stops found",2)
 
             tw = None
             # to turn the ways in the right direction
@@ -283,7 +295,7 @@ class OSM:
             for old_wayid,role in map(lambda t: (t.items()[0]), r.mway):
                 if not (role=='forward' or role=='backward' or role==''):
                     continue
-                print "\ntry adding Way["+str(old_wayid)+"]"
+                vprint( "\ntry adding Way["+str(old_wayid)+"]",2)
                 nds = []
                 
                 #first node out of first way
@@ -294,7 +306,7 @@ class OSM:
 
                 #check if node order is wrong
                 invert = False
-                #print "ln: "+ str(last_node)+ "\tn0: "+str(fnode)+"\tn-1: "+str(lnode)
+                #vprint( "ln: "+ str(last_node)+ "\tn0: "+str(fnode)+"\tn-1: "+str(lnode),2)
                 if not last_node==None:
                     if last_node==fnode:
                         invert = False
@@ -303,7 +315,7 @@ class OSM:
                     else:#ERROR
                         errors += 1
 #idee to skip a route if an error was found
-                        print "ERROR "+str(errors)+": Relation ["+str(r.id)+"] in Way ["+str(old_wayid)+"] is not connected to the previous Way ["+str(last_way)+"]"
+                        vprint( "ERROR "+str(errors)+": Relation ["+str(r.id)+"] in Way ["+str(old_wayid)+"] is not connected to the previous Way ["+str(last_way)+"]",0)
                 else:
                     invert = False
 
@@ -315,13 +327,7 @@ class OSM:
                 else:
                     part_ways = self.vways[old_wayid]
                     last_node = lnode
-
-                #extract stopps
-                stops = []
-                #iterates through the items list (convertet from hash)
-                for nid,role in map(lambda t: (t.items()[0]), r.mnode):
-                    if role.split(':')[0]=='stop':
-                        stops.append(nid)
+                vprint( part_ways,3)
 
                 #the next part hast to operate on the splitted ways
                 for wayid in part_ways:
@@ -333,6 +339,9 @@ class OSM:
                     #skip if last stop was already reached
                     if i>=len(stops):
                         break
+                    vprint( "waypart ["+str(wayid)+"] info: stop:"+str(i)+\
+                            "["+stops[i]+"] \tn0: "+str(nds[0])+
+                            "\tn-1:"+str(nds[-1]),2)
                     #there are 2 diffrent edges possible in kinds of stop position 0-x, 1-x
                     #and it might be a continuing or the first edge
                     if tw==None:
@@ -344,12 +353,15 @@ class OSM:
                             tw.nds = nds #all nodes have to belong to the edge cause way was split on stops
 
                             i += 1#jump to next stop_position
+                            vprint( "create new Edge ["+str(tw.id)+"]",3)
                     else:
                         if stops[i]==nds[0]:
                             #stop the last edge 
                             new_ways[tw.id] = tw
                             ec += 1
 
+                            vprint( "finish edge ["+tw.id+"] and create new"+\
+                                    "Edge [special-"+str(ec)+"]",3)
                             #and start a new one
                             tw = Way('special-'+str(ec),None) 
                             tw.tags = r.tags;
@@ -360,13 +372,16 @@ class OSM:
                         else:
                             #just continue the last edge
                             tw.nds.extend(nds)
+                            vprint( "continue Edge ["+str(tw.id)+"]",3)
                         
 
-                    #print "waypart info: stop ["+stops[i-1]+"] \tn0: "+str(nds[0])+"\tn-1: "+str(nds[-1])
 
 
+        vprint( "new and old ways",3)
+        vprint( new_ways.keys(),3)
+        vprint( self.ways.keys(),3)
         self.ways.update(new_ways)
-        print str(errors)+" Errors found\n"
+        vprint( str(errors)+" Errors found\n",1)
 
 
     #calcs the waylength in km
@@ -397,7 +412,7 @@ class OSM:
 
     #return method for usage in matlab
     def convert2mat(self,filename):
-      print "matlab export to '"+filename+"'"
+      vprint( "matlab export to '"+filename+"'",1)
       class Edge:
           def __init__(self, eid, wayid, nds, tags, length):
               self.orgid = wayid
@@ -460,14 +475,14 @@ class OSM:
           # add edge with way direction
           eid += 1
           edges.append(Edge(eid, way.id, way.nds, way.tags, self.calclength(way)))
-          #print "eID: " + str(eid) + "\tdest: " + str(way.nds[-1]) + "\torg: " + str(way.nds[0])
+          vprint( "eID: " + str(eid) + "\tdest: " + str(way.nds[-1]) + "\torg:" + str(way.nds[0]),3)
           # Pseudocode auf gelben zettel einfuegen
           if way.nds[0] in node_lu:
-              #print "org: "+ str(way.nds[0]) + "new: " + str(node_lu[way.nds[0]])
+              vprint( "org: "+ str(way.nds[0]) + "new: " + str(node_lu[way.nds[0]]),3)
               vertexes[node_lu[way.nds[0]]-1].add_edge(eid)
           else:
               node = self.nodes[way.nds[0]]
-              #print "add new id: " + str(node.id) + "=>" + str(nid)
+              vprint( "add new id: " + str(node.id) + "=>" + str(nid),3)
               node_lu[str(node.id)] = nid # substitude the node id with array index
               vertexes.append(Vertex(node.id, node.lon, node.lon, [], node.tags))
               vertexes[nid-1].add_edge(eid)
@@ -479,11 +494,11 @@ class OSM:
           edges.append(Edge(eid, way.id, reversed_nodes, way.tags, self.calclength(way)))
           # Pseudocode auf gelben zettel einfuegen
           if reversed_nodes[0] in node_lu:
-              #print "org: "+ str(way.nds[0]) + "new: " + str(node_lu[way.nds[0]])
+              vprint( "org: "+ str(way.nds[0]) + "new: " + str(node_lu[way.nds[0]]),3)
               vertexes[node_lu[reversed_nodes[0]]-1].add_edge(eid)
           else:
               node = self.nodes[reversed_nodes[0]]
-              #print "add new id: " + str(node.id) + "=>" + str(nid)
+              vprint( "add new id: " + str(node.id) + "=>" + str(nid),3)
               node_lu[node.id] = nid # substitude the node id with array index
               vertexes.append(Vertex(node.id, node.lon, node.lon, [], node.tags))
               vertexes[nid-1].add_edge(eid)
@@ -493,8 +508,7 @@ class OSM:
       for e in edges:
           e.dest = node_lu[e.dest]
 
-      # print edges matrix
-      print "saved to '"+filename+"'"
+      vprint( "saved to '"+filename+"'",1)
       f = open(filename, 'w')
 
       i = 0
@@ -502,26 +516,25 @@ class OSM:
       f.write("edges = {\n")
       for ed in edges:
           i += 1
-          #print str(i) + ": " + ed.toString()
+          vprint( str(i) + ": " + ed.toString(),3)
           f.write( ed.toString()+"\n")
       f.write( "};\n\n")
 
-      # print edges matrix
       i = 0
       f.write( "%[name, 10 fields with edges, lon, lat, original ID]\n")
       f.write( "nodes = {\n")
       for v in vertexes:
         i+=1
-        #print str(i)+": "+ v.toString()
+        vprint( str(i)+": "+ v.toString(),3)
         f.write( v.toString() +"\n")
       f.write( "};\n\n")
       f.write("save('graph.mat','edges','nodes','-mat');")
       f.close()
-      print "run 'octave graph.m' to generate graph.mat to load in your program"
+      vprint( "run 'octave "+filename+"' to generate graph.mat to load in your program",2)
 
 #exports to osm xml
     def export(self,filename):
-      print "osm-xml export..."
+      vprint( "osm-xml export...",1)
       fp = open(filename, "w")
       x = XMLGenerator(fp, "UTF-8")
       x.startDocument()
@@ -597,17 +610,24 @@ def main():
     group.add_argument("-b", "--bbox", help="an area to download highways in the format 'left,bottom,right,top'")
     parser.add_argument("-t", "--transport", help="Experimental Option! Uses as well public transportation infomation",
                             action="store_true")
-    parser.add_argument("-o", "--osm", help="export the routable graph as osm-xml",
-                            action="store_true")
-    parser.add_argument("-m", "--matlab", help="export the routable graph as ugly matlab file",
-                            action="store_true")
+    parser.add_argument("-o", "--osm-file", nargs='?', const='export.osm',
+            help="export the routable graph as osm-xml to given file")
+            #type=argparse.FileType('w'),
+    parser.add_argument("-m", "--matlab-file", nargs='?', const='export.m',
+            help="export the routable graph as ugly matlab file")
+            #type=argparse.FileType('w'),
     parser.add_argument("-g", "--graph", help="show the routable graph in a plot - only for smaller ones recomended",
                             dest="graph", action="store_true")
-#    parser.add_argument("-v", "--verbose", help="increase output verbosity",
-#                            action="store_true")
+    parser.add_argument("-v", "--verbosity", type=int, choices=[0, 1, 2],
+                                help="increase output verbosity")
     args = parser.parse_args()
 
     #TODO ensure there is always an input
+
+    verbose = args.verbosity
+    if len(sys.argv) == 1:
+        parser.print_help()
+        sys.exit(0)
 
     #get the input
     url = args.filename
@@ -619,16 +639,16 @@ def main():
     else:
         osm = OSM(fp,args.transport)
 
-    if args.osm:
-        print "OSM-XML file export to 'export.osm'"
-        osm.export("export.osm")
+    if args.osm_file:
+        vprint( "OSM-XML file export to '"+args.osm_file+"'",1)
+        osm.export(args.osm_file)
 
-    if args.matlab:
-        print "Export to Matlab"
-        osm.convert2mat("export.m")
+    if args.matlab_file:
+        vprint( "Export to Matlab file '"+args.matlab_file+"'",1)
+        osm.convert2mat(args.matlab_file)
 
     if args.graph:
-        print "Show as graph"
+        vprint( "Show as graph",1)
         G=osm.graph()
         networkx.draw(G)
         #networkx.draw_random(G)
