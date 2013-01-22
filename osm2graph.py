@@ -53,7 +53,7 @@ class Node:
 
 
     # creats a osm-xml way object
-    def toOSM(self,x):
+    def toOSM(self,x,mark=False):
         # Generate SAX events
         frame = False
         if x == None :
@@ -64,6 +64,9 @@ class Node:
             x.startElement('osm',{"version":"0.6"})
 
         x.startElement('node',{"id":self.id, "lat":str(self.lat), "lon":str(self.lon), "visible":"true"})
+        if mark:
+            x.startElement('tag',{"k":'routing_crossing', "v":'yes'})
+            x.endElement('tag')
         for k, v in self.tags.iteritems():
             x.startElement('tag',{"k":k, "v":v})
             x.endElement('tag')
@@ -534,25 +537,32 @@ class OSM:
 
 #exports to osm xml
     def export(self,filename):
-      vprint( "osm-xml export...",1)
-      fp = open(filename, "w")
-      x = XMLGenerator(fp, "UTF-8")
-      x.startDocument()
-      x.startElement('osm',{"version":"0.6","generator":"crazy py script"})
-      #TODO optimize this
-      for n in self.nodes.itervalues():
-          #TODO add in each routing node an information for rendering
-          n.toOSM(x)
+        vprint( "osm-xml export...",1)
 
-      for w in self.ways.itervalues():
-          if not 'highway' in w.tags:
-              continue
-          if not (w.tags['highway']=='bus' or w.tags['highway']=='tram'):
-              continue
+        #remember all nodes allready exported
+        unodes = {}
 
-          w.toOSM(x)
-      x.endElement('osm')
-      x.endDocument()
+        fp = open(filename, "w")
+        x = XMLGenerator(fp, "UTF-8")
+        x.startDocument()
+        x.startElement('osm',{"version":"0.6","generator":"crazy py script"})
+
+        for w in self.ways.itervalues():
+            if not 'highway' in w.tags:
+                continue
+#            if not (w.tags['highway']=='bus' or w.tags['highway']=='tram'):
+#                continue
+            w.toOSM(x)
+            for nid in w.nds:
+                if nid in unodes:#already used
+                    continue
+                unodes[nid]=True
+                if w.nds.index(nid)==0 or w.nds.index(nid)==len(w.nds)-1:
+                    self.nodes[nid].toOSM(x,True)
+                else:
+                    self.nodes[nid].toOSM(x)
+        x.endElement('osm')
+        x.endDocument()
 
 #returns a nice graph
     def graph(self,only_roads=True):
