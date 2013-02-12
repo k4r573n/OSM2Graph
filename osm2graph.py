@@ -9,7 +9,17 @@ comes from Graphserver:
 http://github.com/bmander/graphserver/tree/master and is copyright (c)
 2007, Brandon Martin-Anderson under the BSD License
 """
+"""
+Future Work
 
+implement as well the Weighted Indoor Routing Graph (WIRG)
+according to:
+Goetz, M.; Zipf, A. Formal definition of a user-adaptive and length-optimal
+routing graph for
+complex indoor environments. Geo-Spat. Inf. Sci. 2011, 14, 119-128.
+
+provide a export function to a neo4j database
+"""
 
 import xml.sax
 from xml.sax.saxutils import XMLGenerator
@@ -28,17 +38,65 @@ import urllib
 verbose = 1
 
 def vprint(stri,level):
+    global verbose
     if verbose >= level:
         print stri
 
-def getHighways(left,bottom,right,top):
-    """ Return a filehandle to the downloaded data."""
-    bbox = "%f,%f,%f,%f"%(left,bottom,right,top)
-    
-    url = "http://overpass-api.de/api/interpreter?data=" + urllib.quote("(way("+ bbox + ")[highway];>;);out;")
-    vprint( url,2)
+def getNetwork(left,bottom,right,top,transport="all"):
+    """ Return a filehandle to the downloaded data.
+        down loads highways and public transport
+    """
+    bbox = "%f,%f,%f,%f"%(bottom,left,top,right)
+    localfilename = "/tmp/input.osm"
+
+    hw_query = ""
+    if transport == "hw" or transport == "all":
+        hw_query = ""+\
+         "("+\
+              "way("+bbox+")[highway];"+\
+               ">;"+\
+         ");"
+
+    pt_query = ""
+    if transport == "pt" or transport == "all":
+        pt_query = ""+\
+         "("+\
+               "("+\
+                   "relation("+bbox+")[type=route][route=tram];"+\
+                   "relation("+bbox+")[type=route][route=bus];"+\
+               ");"+\
+               ">>;"+\
+         ");"
+                   #"relation("+bbox+")[type=route_master][route_master=tram][name=\"Tram 2\"];"+\
+        pt_query = ""+\
+         "("+\
+               "("+\
+                    "relation("+bbox+")[type=route][route=tram][\"name\"~\"^Linie 2\",i];"+\
+               ");"+\
+               ">>;"+\
+         ");"
+    meta = ""
+    if (verbose >= 1):
+        meta = " meta"
+
+    api = "http://overpass-api.de/api/interpreter?data="
+    url = ""+\
+    "("+\
+        hw_query+\
+        pt_query+\
+    ");"+\
+    "out"+meta+";"
+
+    vprint( api+url,2)
+
+    url = api + urllib.quote(url)
+
     fp = urlopen( url )
-    return fp
+    localFile = open(localfilename, 'w')
+    localFile.write(fp.read())
+    localFile.close()
+    fp.close()
+    return localfilename
 
 
 class Node:
@@ -160,7 +218,7 @@ class Route:
         
 class OSM:
     """ will parse a osm xml file and provide diffrent export functions"""
-    def __init__(self, filename_or_stream, publicTransport=False):
+    def __init__(self, filename_or_stream, transport):
         """ File can be either a filename or stream/file object."""
         vprint( "Start reading input...",2)
         nodes = {} # node objects
@@ -242,7 +300,7 @@ class OSM:
             else:
                 for node in way.nds:
                     #count public_transport=stop_position extra (to ensure a way split there)
-                    if publicTransport and (\
+                    if (transport=="all" or transport=="pt") and (\
                         nodes[node].checkTag('public_transport','stop_position') or 
                         nodes[node].checkTag('railway','tram_stop')):
                         node_histogram[node] += 2
@@ -262,8 +320,25 @@ class OSM:
         self.ways = new_ways
         self.vways = vways
 
-        if publicTransport:
+        if not transport=="hw":
             self.addPublicTransport(ec)
+
+
+    def checkPublicTransport(self):
+        """ analyses which of the route realation is taged correctly """
+        routes = {}
+        for r in self.relations.itervalues():
+            if not ('route' in r.tags and (r.tags['route']=='tram' or\
+                    r.tags['route']=='bus')):
+                continue
+
+                # if stop number > = 2
+# if number platform == number stops
+# if all stops are nodes
+# if all stops are at the beginning
+# if stops and platforms are alternating
+
+        return routes
 
 
     def addPublicTransport(self,ec):
@@ -271,7 +346,7 @@ class OSM:
         # error counter
         errors = 0
         
-#TODO make it more flexable to import really a bus/tram route
+#TODO check if its well tagged befor trying to add
         new_ways = {}
         for r in self.relations.itervalues():
             if not ('route' in r.tags and (r.tags['route']=='tram' or\
@@ -299,6 +374,7 @@ class OSM:
                 if not (role=='forward' or role=='backward' or role==''):
                     continue
                 vprint( "\ntry adding Way["+str(old_wayid)+"]",2)
+                vprint(self.vways[old_wayid],3)
                 nds = []
                 
                 #first node out of first way
@@ -317,7 +393,8 @@ class OSM:
                         invert = True
                     else:#ERROR
                         errors += 1
-#idee to skip a route if an error was found
+                        #idee to skip a route if an error was found
+                        #TODO add this information to the check-report
                         vprint( "ERROR "+str(errors)+": Relation ["+str(r.id)+"] in Way ["+str(old_wayid)+"] is not connected to the previous Way ["+str(last_way)+"]",0)
                 else:
                     invert = False
@@ -327,9 +404,11 @@ class OSM:
                 if invert:
                     part_ways = self.vways[old_wayid][::-1]
                     last_node = fnode
+                    vprint("invert way",2)
                 else:
                     part_ways = self.vways[old_wayid]
                     last_node = lnode
+                    vprint("don't invert way",2)
                 vprint( part_ways,3)
 
                 #the next part hast to operate on the splitted ways
@@ -353,7 +432,8 @@ class OSM:
                             tw = Way('special-'+str(ec),None) 
                             tw.tags = r.tags;
                             tw.tags['highway']=route_type
-                            tw.nds = nds #all nodes have to belong to the edge cause way was split on stops
+                            tw.tags['oneway']="yes"#always oneway (one relation for each direction)
+                            tw.nds.extend(nds) #all nodes have to belong to the edge cause way was split on stops
 
                             i += 1#jump to next stop_position
                             vprint( "create new Edge ["+str(tw.id)+"]",3)
@@ -361,6 +441,7 @@ class OSM:
                         if stops[i]==nds[0]:
                             #stop the last edge 
                             new_ways[tw.id] = tw
+                            vprint("new wayid="+str(tw.id),3)
                             ec += 1
 
                             vprint( "finish edge ["+tw.id+"] and create new"+\
@@ -369,7 +450,8 @@ class OSM:
                             tw = Way('special-'+str(ec),None) 
                             tw.tags = r.tags;
                             tw.tags['highway']= route_type
-                            tw.nds = nds #all nodes have to belong to the edge cause way was split on stops
+                            tw.tags['oneway']="yes"#always oneway (one relation for each direction)
+                            tw.nds.extend(nds) #all nodes have to belong to the edge cause way was split on stops
 
                             i += 1#jump to next stop_position
                         else:
@@ -536,7 +618,7 @@ class OSM:
       vprint( "run 'octave "+filename+"' to generate graph.mat to load in your program",2)
 
 #exports to osm xml
-    def export(self,filename):
+    def export(self,filename,transport):
         vprint( "osm-xml export...",1)
 
         #remember all nodes allready exported
@@ -550,8 +632,12 @@ class OSM:
         for w in self.ways.itervalues():
             if not 'highway' in w.tags:
                 continue
-#            if not (w.tags['highway']=='bus' or w.tags['highway']=='tram'):
-#                continue
+            if transport == "all" or transport == "pt":
+                if not (w.tags['highway']=='bus' or w.tags['highway']=='tram'):
+                    continue
+            if transport == "all" or transport == "hw":
+                if (w.tags['highway']=='bus' or w.tags['highway']=='tram'):
+                    continue
             w.toOSM(x)
             for nid in w.nds:
                 if nid in unodes:#already used
@@ -618,8 +704,8 @@ def main():
     group = parser.add_mutually_exclusive_group()
     group.add_argument('-f','--filename','--file', help='the path to a local file')
     group.add_argument("-b", "--bbox", help="an area to download highways in the format 'left,bottom,right,top'")
-    parser.add_argument("-t", "--transport", help="Experimental Option! Uses as well public transportation infomation",
-                            action="store_true")
+    parser.add_argument("-t", "--transport", choices=["all", "hw", "pt"], default="all",
+            help="Experimental Option! Uses as well public transportation infomation")
     parser.add_argument("-o", "--osm-file", nargs='?', const='export.osm',
             help="export the routable graph as osm-xml to given file")
             #type=argparse.FileType('w'),
@@ -628,30 +714,36 @@ def main():
             #type=argparse.FileType('w'),
     parser.add_argument("-g", "--graph", help="show the routable graph in a plot - only for smaller ones recomended",
                             dest="graph", action="store_true")
-    parser.add_argument("-v", "--verbosity", type=int, choices=[0, 1, 2],
+    parser.add_argument("-v", "--verbosity", type=int, choices=[0, 1, 2, 3],
                                 help="increase output verbosity")
     args = parser.parse_args()
 
-    #TODO ensure there is always an input
-
+    #TODO ensure there is always an input - fix in argument syntax
+    #bbox or filename
+    global verbose
     verbose = args.verbosity
     if len(sys.argv) == 1:
         parser.print_help()
         sys.exit(0)
 
     #get the input
-    url = args.filename
-    fp = urlopen( url )
+    fn = ""
+    if args.filename:
+        fn = args.filename
 
     if args.bbox:
-        [left,bottom,right,top] = args.bbox.split(",")
-        OSM(getHighways(left,bottom,right,top),args.transport)
-    else:
-        osm = OSM(fp,args.transport)
+        [left,bottom,right,top] = [float(x) for x in args.bbox.split(",")]
+        fn = getNetwork(left,bottom,right,top,args.transport)
+    if fn==None:
+        Sys.exit("ERROR: no input given")
+
+    fp = open( fn,'r' )
+    osm = OSM(fp,args.transport)
+    fp.close()
 
     if args.osm_file:
         vprint( "OSM-XML file export to '"+args.osm_file+"'",1)
-        osm.export(args.osm_file)
+        osm.export(args.osm_file,args.transport)
 
     if args.matlab_file:
         vprint( "Export to Matlab file '"+args.matlab_file+"'",1)
