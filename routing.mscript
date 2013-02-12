@@ -1,0 +1,10 @@
+clear-map
+change-dir /home/karsten/workspace/projekte/osm/routable_graph/287370/
+use-ruleset location=routing.mrules
+apply-ruleset
+load-source "export.osm"
+
+//bounds-set 5.7143,45.1807,5.7792,45.2014
+bounds-set 10.4788,52.2421,10.5649,52.2823
+zoom-bounds
+export-bitmap zoom=16 file=output/routing.png

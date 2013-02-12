@@ -1,0 +1,220 @@
+features
+	points, areas
+		crossing : routing_crossing=yes
+		//bus stop : highway=bus_stop
+
+	areas
+		
+	lines
+		//oneway : oneway=yes OR oneway=true OR oneway=-1
+		//railway : railway=rail
+
+		highway big_street : highway=motorway OR highway=motorway_link OR highway=primary OR highway=secondary
+		highway small_street : highway=tertiary OR highway=living_street OR highway=unclassified OR highway=service OR highway=residental
+		highway cycleway : highway=track OR highway=cycleway
+		highway footway : highway=footway OR highway=path OR highway=steps
+		highway bus : highway=bus
+		highway tram : highway=tram
+
+		gps tracks : gpstrack[]
+		gps routes : gpsroute[]
+		
+	points
+		gps waypoints : gpswaypoint[]
+		gps trackpoints: gpstrack[].gpspoint[]
+		gps routepoints: gpsroute[].gpspoint[]
+
+properties
+	map-background-color	: #F1EEE8
+	map-background-opacity	: 1
+	map-sea-color : #B5D0D0
+	font-weight : bold
+	font-family : Verdana
+	text-max-width : 7
+	text-halo-width : 25%
+	text-halo-opacity : 0.75
+	text-align-horizontal : center
+	text-align-vertical : center
+	font-stretch : 0.9
+	map.rendering.lflp.min-buffer-space : 5
+	map.rendering.lflp.max-allowed-corner-angle : 40
+	
+rules
+	target: gps tracks
+		define
+			line-color : red
+			line-opacity : 0.75
+			min-zoom : 5
+			line-width : 5
+		draw : line
+
+	target: gps routes
+		define
+			line-color : blue
+			line-opacity : 0.75
+			line-style : dash
+			min-zoom : 5
+			line-width : 5
+		draw : line
+
+	target : gps waypoints
+		define
+			shape : circle
+			shape-size : 8
+			line-color : green
+			fill-opacity : 0
+		draw : shape
+
+	target : gps trackpoints
+		define
+			min-zoom : 17
+			shape : square
+			shape-size : 10
+			line-color : green
+			line-width : 1
+			fill-opacity : 0
+		draw : shape
+
+
+	target : gps routepoints
+		define
+			min-zoom : 12
+			shape : diamond
+			shape-size : 10
+			line-color : green
+			line-width : 1
+			fill-opacity : 0
+		draw : shape
+
+	target : highway*
+		define
+			font-size : 15:7;18:10
+			font-weight : bold
+	
+		
+		define
+			line-style : solid
+			line-join : round
+			line-start-cap : round
+			line-end-cap : round
+	
+
+		if :  *big_street*
+			define
+				min-zoom : 11
+				line-color : #ECD203
+				line-width : 11:2;12:2;15:10;18:12
+				border-style : solid
+				border-color : #ECA2A3 black 20%
+				border-width : 15%
+			draw : line
+			define
+				min-zoom : 7
+				max-zoom : 11
+				border-style : none
+			draw : line
+			define
+				min-zoom : 13
+				max-zoom : 20
+			draw : text
+
+		elseif : *small_street*
+			define
+				min-zoom : 13
+				line-color : white
+				line-width : 12:1;13:1.5;15:10;18:12
+				border-style : solid
+				border-color : white black 50%
+				border-width : 20%
+			draw : line
+			define
+				min-zoom : 10
+				max-zoom : 13
+				border-style : none
+				line-color : white black 25%
+			draw : line
+			define
+				min-zoom : 15
+				max-zoom : 20
+			draw : text
+		elseif : *footway
+			define	
+				min-zoom : 11
+				line-color : #F6B4B4
+				line-width : 1.5
+				line-style : dot
+				border-style : solid
+				border-color : white
+				border-width : 100%
+				border-opacity : 0.3
+			draw : line
+			draw : text		
+		elseif : *cycleway
+			define	
+				min-zoom : 11
+				line-color : green
+				line-width : 1.5
+				line-style : dot
+				border-style : solid
+				border-color : white
+				border-width : 100%
+				border-opacity : 0.3
+			draw : line
+		elseif : *bus*
+			define	
+				min-zoom : 11
+				line-color : #ff0000
+				line-width : 3.0
+				border-style : solid
+				border-color : white
+				border-width : 100%
+				border-opacity : 0.3
+			draw : line
+		elseif : *tram*
+			define	
+				min-zoom : 11
+				line-color : #0000ff
+				line-width : 3.0
+				border-style : solid
+				border-color : white
+				border-width : 100%
+				border-opacity : 1.0
+			draw : line
+		else
+      //if unknown its a footway
+			define	
+				min-zoom : 11
+				line-color : #F6B4B4
+				line-width : 1.5
+				line-style : dot
+				border-style : solid
+				border-color : white
+				border-width : 100%
+				border-opacity : 0.3
+			draw : line
+			draw : text		
+
+	target: crossing
+//		define
+//			icon-image : /opt/maperative/Icons/SJJB/png/amenity_post_box.n.32.png
+//			min-zoom : 10
+//			icon-width : 16
+//		draw : icon
+		define
+			fill-color : #000000
+			shape : custom
+			//shape-def : -60,0;-20,-40;-20,-15;60,-15;60,		15;-20,15;-20,40;Z
+			shape : circle
+			shape-size : 5
+			shape-aspect : 0.5
+		draw : shape		
+//		define
+//			min-zoom : 10
+//			line-color : #000000
+//			line-style : dot
+//			line-width : 6.0
+//		draw : line
+//		define
+//			min-zoom : 17
+//			text : collection_times
+//		draw : text
