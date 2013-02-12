@@ -2,15 +2,19 @@
 Read graphs in Open Street Maps osm format
 
 Based on gistfile1.py by Abraham Flaxman from
-https://gist.github.com/287370/2fa6c2e1b3839e5bb367b806825da9b40f06869://gist.github.com/287370/2fa6c2e1b3839e5bb367b806825da9b40f068695
+https://gist.github.com/aflaxman/287370/
 Based on osm.py from brianw's osmgeocode
 http://github.com/brianw/osmgeocode, which is based on osm.py from
 comes from Graphserver:
 http://github.com/bmander/graphserver/tree/master and is copyright (c)
 2007, Brandon Martin-Anderson under the BSD License
 """
+
 """
 Future Work
+
+implement parsing this proposal for route segments as well
+http://wiki.openstreetmap.org/wiki/Proposed_features/Route_Segments
 
 implement as well the Weighted Indoor Routing Graph (WIRG)
 according to:
@@ -19,6 +23,7 @@ routing graph for
 complex indoor environments. Geo-Spat. Inf. Sci. 2011, 14, 119-128.
 
 provide a export function to a neo4j database
+
 """
 
 import xml.sax
@@ -43,7 +48,7 @@ def vprint(stri,level):
         print stri
 
 def getNetwork(left,bottom,right,top,transport="all"):
-    """ Return a filehandle to the downloaded data.
+    """ Returns a filename to the downloaded data.
         down loads highways and public transport
     """
     bbox = "%f,%f,%f,%f"%(bottom,left,top,right)
@@ -67,14 +72,13 @@ def getNetwork(left,bottom,right,top,transport="all"):
                ");"+\
                ">>;"+\
          ");"
-                   #"relation("+bbox+")[type=route_master][route_master=tram][name=\"Tram 2\"];"+\
-        pt_query = ""+\
-         "("+\
-               "("+\
-                    "relation("+bbox+")[type=route][route=tram][\"name\"~\"^Linie 2\",i];"+\
-               ");"+\
-               ">>;"+\
-         ");"
+        #pt_query = ""+\
+        # "("+\
+        #       "("+\
+        #            "relation("+bbox+")[type=route][route=tram][\"name\"~\"^Linie 2\",i];"+\
+        #       ");"+\
+        #       ">>;"+\
+        # ");"
     meta = ""
     if (verbose >= 1):
         meta = " meta"
@@ -99,6 +103,9 @@ def getNetwork(left,bottom,right,top,transport="all"):
     return localfilename
 
 
+# Node
+#
+# a class which represent a Openstreetmap-node as well as a graph vertex
 class Node:
     def __init__(self, id, lon, lat):
         self.id = id
@@ -133,6 +140,10 @@ class Node:
             x.endElement('osm')
             x.endDocument()
         
+# Way
+#
+# a class which represent graph edges
+# the ways includes split OSM-ways and PT-edges (between 2 stops)
 class Way:
     def __init__(self, id, osm):
         self.osm = osm
@@ -167,7 +178,7 @@ class Way:
             
         return ret
 
-    # creats a osm-xml way object
+    # creates a osm-xml way object
     def toOSM(self,x):
         # Generate SAX events
         frame = False
@@ -193,6 +204,9 @@ class Way:
             x.endElement('osm')
             x.endDocument()
 
+# Relation
+#
+# equals to an OSM-Relation
 class Relation:
     # only for relations with type=route
     def __init__(self, id, osm):
@@ -206,6 +220,9 @@ class Relation:
         self.tags = {}
 
 
+# Route
+#
+# filled by Route-Relations for buses and trams
 class Route:
     # only for relations with type=route
     def __init__(self, id, osm):
@@ -216,8 +233,14 @@ class Route:
         self.ways = []
         self.tags = {}
         
+# OSM
+#
+# class to handel all tasks
+# reads OSM file
+# parse the data
+# provide export functionalities
 class OSM:
-    """ will parse a osm xml file and provide diffrent export functions"""
+    """ will parse a osm xml file and provide different export functions"""
     def __init__(self, filename_or_stream, transport):
         """ File can be either a filename or stream/file object."""
         vprint( "Start reading input...",2)
@@ -228,6 +251,9 @@ class OSM:
         
         superself = self
 
+        # OSMHandler
+        #
+        # reads the OSM-file
         class OSMHandler(xml.sax.ContentHandler):
             @classmethod
             def setDocumentLocator(self,loc):
@@ -282,7 +308,7 @@ class OSM:
         self.ways = ways
         self.relations = relations
 
-        # edge counter - to generate new edge ids
+        # edge counter - to generate continues numbered new edge ids
         ec = 0
 
         vprint( "file reading finished",1)
@@ -325,7 +351,7 @@ class OSM:
 
 
     def checkPublicTransport(self):
-        """ analyses which of the route realation is taged correctly """
+        """ analyses which of the route relation is tagged correctly """
         routes = {}
         for r in self.relations.itervalues():
             if not ('route' in r.tags and (r.tags['route']=='tram' or\
@@ -346,7 +372,7 @@ class OSM:
         # error counter
         errors = 0
         
-#TODO check if its well tagged befor trying to add
+#TODO check if its well tagged before trying to add
         new_ways = {}
         for r in self.relations.itervalues():
             if not ('route' in r.tags and (r.tags['route']=='tram' or\
@@ -356,9 +382,9 @@ class OSM:
             route_type = r.tags['route']
             vprint( route_type,2)
 
-            #extract stopps
+            #extract stops
             stops = []
-            #iterates through the items list (convertet from hash)
+            #iterates through the items list (converted from hash)
             for nid,role in map(lambda t: (t.items()[0]), r.mnode):
                 if role.split(':')[0]=='stop':
                     stops.append(nid)
@@ -369,7 +395,7 @@ class OSM:
             last_node = None
             last_way = None
             i = 0
-            #iterates through the items list (convertet from hash)
+            #iterates through the items list (converted from hash)
             for old_wayid,role in map(lambda t: (t.items()[0]), r.mway):
                 if not (role=='forward' or role=='backward' or role==''):
                     continue
@@ -385,7 +411,6 @@ class OSM:
 
                 #check if node order is wrong
                 invert = False
-                #vprint( "ln: "+ str(last_node)+ "\tn0: "+str(fnode)+"\tn-1: "+str(lnode),2)
                 if not last_node==None:
                     if last_node==fnode:
                         invert = False
@@ -393,7 +418,7 @@ class OSM:
                         invert = True
                     else:#ERROR
                         errors += 1
-                        #idee to skip a route if an error was found
+                        #idea to skip a route if an error was found
                         #TODO add this information to the check-report
                         vprint( "ERROR "+str(errors)+": Relation ["+str(r.id)+"] in Way ["+str(old_wayid)+"] is not connected to the previous Way ["+str(last_way)+"]",0)
                 else:
@@ -411,7 +436,7 @@ class OSM:
                     vprint("don't invert way",2)
                 vprint( part_ways,3)
 
-                #the next part hast to operate on the splitted ways
+                #the next part hast to operate on the split ways
                 for wayid in part_ways:
                     if invert:
                         nds = self.ways[wayid].nds[::-1]
@@ -424,7 +449,7 @@ class OSM:
                     vprint( "waypart ["+str(wayid)+"] info: stop:"+str(i)+\
                             "["+stops[i]+"] \tn0: "+str(nds[0])+
                             "\tn-1:"+str(nds[-1]),2)
-                    #there are 2 diffrent edges possible in kinds of stop position 0-x, 1-x
+                    #there are 2 different edges possible in kinds of stop position 0-x, 1-x
                     #and it might be a continuing or the first edge
                     if tw==None:
                         if stops[i]==nds[0]:
@@ -469,7 +494,8 @@ class OSM:
         vprint( str(errors)+" Errors found\n",1)
 
 
-    #calcs the waylength in km
+    #calculates the way length in km
+    # needs access to the nodes list - therefore its here
     def calclength(self,way):
         lastnode = None
         length = 0
@@ -478,7 +504,7 @@ class OSM:
                 lastnode = self.nodes[node]
                 continue
 
-            # copyed from
+            # copied from
             # http://stackoverflow.com/questions/5260423/torad-javascript-function-throwing-error
             R = 6371 # km
             dLat = (lastnode.lat - self.nodes[node].lat) * math.pi / 180
@@ -495,133 +521,146 @@ class OSM:
 
         return length
 
-    #return method for usage in matlab
+    # TODO rewrite to export to cvs
+    # convert2mat
+    #
+    # return method for usage in Matlab
+    # creates a *.m file with an edge and a node matrix where the edge/node id is
+    # the row index
     def convert2mat(self,filename):
-      vprint( "matlab export to '"+filename+"'",1)
-      class Edge:
-          def __init__(self, eid, wayid, nds, tags, length):
-              self.orgid = wayid
-              self.id = eid
-              self.dest = nds[-1]
-              if "name" in tags:
-                  self.name = tags["name"]
-              else:
-                  self.name = "no name"
+        vprint( "Matlab export to '"+filename+"'",1)
 
-              self.length = length
+        # Edge
+        #
+        # inner class to represent an unidirectional and simplified edge for export
+        class Edge:
+            def __init__(self, eid, wayid, nds, tags, length):
+                self.orgid = wayid
+                self.id = eid
+                self.dest = nds[-1]
+                if "name" in tags:
+                    self.name = tags["name"]
+                else:
+                    self.name = "no name"
 
-              hw={'footway':1, 'cycleway':2, 'path':1, 'residental':4,'motorway':3,'trunk':3,'motorway_link':3,'primary':3,
-                      'secondary':3, 'tertiary':4, 'living_street':4, 'unclassified':4, 'service':4, 'track':2, 'steps':1,
-                      'bus':5, 'tram':6}
-              if "highway" in tags and tags["highway"] in hw:
-                  self.highway = hw[tags["highway"]]
-              else:
-                  self.highway = 1# if unknown its a footway
+                self.length = length
 
-              self.access_foot = 1
-              if "foot" in tags and tags["foot"] == "no":
-                  self.access_foot = 0
-              self.access_bike = 1
-              if "bicycle" in tags and tags["bicycle"] == "no":
-                  self.access_bike = 0
+                hw={'footway':1, 'cycleway':2, 'path':1, 'residental':4,'motorway':3,'trunk':3,'motorway_link':3,'primary':3,
+                        'secondary':3, 'tertiary':4, 'living_street':4, 'unclassified':4, 'service':4, 'track':2, 'steps':1,
+                        'bus':5, 'tram':6}
+                if "highway" in tags and tags["highway"] in hw:
+                    self.highway = hw[tags["highway"]]
+                else:
+                    self.highway = 1# if unknown its a footway
 
-          def toString(self):
-              return "" + str(self.dest) + ", '" + self.name.replace("'", "''") + "', " + str(self.length) + ", " + str(self.highway) + ", " + str(self.access_foot) + ", " + str(self.access_bike) + ";"
+                self.access_foot = 1
+                if "foot" in tags and tags["foot"] == "no":
+                    self.access_foot = 0
+                self.access_bike = 1
+                if "bicycle" in tags and tags["bicycle"] == "no":
+                    self.access_bike = 0
 
-      class Vertex:
-          def __init__(self, id, lon, lat, eds, tags):
-              self.id = id
-              self.lon = lon
-              self.lat = lat
-              self.eds = []
-              if "name" in tags:
-                  self.name = tags["name"]
-              else:
-                  self.name = "no name"
-              self.tags = {}
+            def toString(self):
+                return "" + str(self.dest) + ", '" + self.name.replace("'", "''") + "', " + str(self.length) + ", " + str(self.highway) + ", " + str(self.access_foot) + ", " + str(self.access_bike) + ";"
 
-          def add_edge(self, edge):
-              self.eds.append(edge)
+        # Vertex
+        #
+        # inner class to represent a simplified node for export
+        class Vertex:
+            def __init__(self, id, lon, lat, eds, tags):
+                self.id = id
+                self.lon = lon
+                self.lat = lat
+                self.eds = []
+                if "name" in tags:
+                    self.name = tags["name"]
+                else:
+                    self.name = "no name"
+                self.tags = {}
 
-          def toString(self):
-              tempe = [str(i) for i in self.eds] + ["0"]*(10 - len(self.eds))
-              edges = ", ".join(tempe)
-              return "'"+self.name.replace("'", "''") + "', " + edges + ", " + str(self.lon) + ", " + str(self.lat) + ", " + str(self.id) +  ";"
+            def add_edge(self, edge):
+                self.eds.append(edge)
 
-      vertexes = []
-      edges = []
-      node_lu = {}
-      eid = 0
-      nid = 1
-      for way in self.ways.itervalues():
-          if 'highway' not in way.tags:
-              continue
-          """ create 2 edges for each direction one """
-          # add edge with way direction
-          eid += 1
-          edges.append(Edge(eid, way.id, way.nds, way.tags, self.calclength(way)))
-          vprint( "eID: " + str(eid) + "\tdest: " + str(way.nds[-1]) + "\torg:" + str(way.nds[0]),3)
-          # Pseudocode auf gelben zettel einfuegen
-          if way.nds[0] in node_lu:
-              vprint( "org: "+ str(way.nds[0]) + "new: " + str(node_lu[way.nds[0]]),3)
-              vertexes[node_lu[way.nds[0]]-1].add_edge(eid)
-          else:
-              node = self.nodes[way.nds[0]]
-              vprint( "add new id: " + str(node.id) + "=>" + str(nid),3)
-              node_lu[str(node.id)] = nid # substitude the node id with array index
-              vertexes.append(Vertex(node.id, node.lon, node.lon, [], node.tags))
-              vertexes[nid-1].add_edge(eid)
-              nid += 1
+            def toString(self):
+                tempe = [str(i) for i in self.eds] + ["0"]*(10 - len(self.eds))
+                edges = ", ".join(tempe)
+                return "'"+self.name.replace("'", "''") + "', " + edges + ", " + str(self.lon) + ", " + str(self.lat) + ", " + str(self.id) +  ";"
 
-          # add edge against way direction
-          eid += 1
-          reversed_nodes = way.nds[::-1]
-          edges.append(Edge(eid, way.id, reversed_nodes, way.tags, self.calclength(way)))
-          # Pseudocode auf gelben zettel einfuegen
-          if reversed_nodes[0] in node_lu:
-              vprint( "org: "+ str(way.nds[0]) + "new: " + str(node_lu[way.nds[0]]),3)
-              vertexes[node_lu[reversed_nodes[0]]-1].add_edge(eid)
-          else:
-              node = self.nodes[reversed_nodes[0]]
-              vprint( "add new id: " + str(node.id) + "=>" + str(nid),3)
-              node_lu[node.id] = nid # substitude the node id with array index
-              vertexes.append(Vertex(node.id, node.lon, node.lon, [], node.tags))
-              vertexes[nid-1].add_edge(eid)
-              nid += 1
 
-      # reduce node numbers
-      for e in edges:
-          e.dest = node_lu[e.dest]
+        vertexes = []
+        edges = []
+        node_lu = {}
+        eid = 0
+        nid = 1
+        for way in self.ways.itervalues():
+            if 'highway' not in way.tags:
+                continue
+            """ create 2 edges for each direction one """
+            # add edge with way direction
+            eid += 1
+            edges.append(Edge(eid, way.id, way.nds, way.tags, self.calclength(way)))
+            vprint( "eID: " + str(eid) + "\tdest: " + str(way.nds[-1]) + "\torg:" + str(way.nds[0]),3)
 
-      vprint( "saved to '"+filename+"'",1)
-      f = open(filename, 'w')
+            if way.nds[0] in node_lu:
+                vprint( "org: "+ str(way.nds[0]) + "new: " + str(node_lu[way.nds[0]]),3)
+                vertexes[node_lu[way.nds[0]]-1].add_edge(eid)
+            else:
+                node = self.nodes[way.nds[0]]
+                vprint( "add new id: " + str(node.id) + "=>" + str(nid),3)
+                node_lu[str(node.id)] = nid # substitute the node id with array index
+                vertexes.append(Vertex(node.id, node.lon, node.lon, [], node.tags))
+                vertexes[nid-1].add_edge(eid)
+                nid += 1
 
-      i = 0
-      f.write("\n%[destination node ID, name, length, highway (1:footway, 2:cycleway, 3:big_street, 4:small_street, 5:bus, 6:tram), footaccess (0/1), bikeaccess (0/1)]\n")
-      f.write("edges = {\n")
-      for ed in edges:
-          i += 1
-          vprint( str(i) + ": " + ed.toString(),3)
-          f.write( ed.toString()+"\n")
-      f.write( "};\n\n")
+            # add edge against way direction
+            eid += 1
+            reversed_nodes = way.nds[::-1]
+            edges.append(Edge(eid, way.id, reversed_nodes, way.tags, self.calclength(way)))
 
-      i = 0
-      f.write( "%[name, 10 fields with edges, lon, lat, original ID]\n")
-      f.write( "nodes = {\n")
-      for v in vertexes:
-        i+=1
-        vprint( str(i)+": "+ v.toString(),3)
-        f.write( v.toString() +"\n")
-      f.write( "};\n\n")
-      f.write("save('graph.mat','edges','nodes','-mat');")
-      f.close()
-      vprint( "run 'octave "+filename+"' to generate graph.mat to load in your program",2)
+            if reversed_nodes[0] in node_lu:
+                vprint( "org: "+ str(way.nds[0]) + "new: " + str(node_lu[way.nds[0]]),3)
+                vertexes[node_lu[reversed_nodes[0]]-1].add_edge(eid)
+            else:
+                node = self.nodes[reversed_nodes[0]]
+                vprint( "add new id: " + str(node.id) + "=>" + str(nid),3)
+                node_lu[node.id] = nid # substitute the node id with array index
+                vertexes.append(Vertex(node.id, node.lon, node.lon, [], node.tags))
+                vertexes[nid-1].add_edge(eid)
+                nid += 1
 
-#exports to osm xml
+        # reduce node numbers
+        for e in edges:
+            e.dest = node_lu[e.dest]
+
+        vprint( "saved to '"+filename+"'",1)
+        f = open(filename, 'w')
+
+        i = 0
+        f.write("\n%[destination node ID, name, length, highway (1:footway, 2:cycleway, 3:big_street, 4:small_street, 5:bus, 6:tram), footaccess (0/1), bikeaccess (0/1)]\n")
+        f.write("edges = {\n")
+        for ed in edges:
+            i += 1
+            vprint( str(i) + ": " + ed.toString(),3)
+            f.write( ed.toString()+"\n")
+        f.write( "};\n\n")
+
+        i = 0
+        f.write( "%[name, 10 fields with edges, lon, lat, original ID]\n")
+        f.write( "nodes = {\n")
+        for v in vertexes:
+          i+=1
+          vprint( str(i)+": "+ v.toString(),3)
+          f.write( v.toString() +"\n")
+        f.write( "};\n\n")
+        f.write("save('graph.mat','edges','nodes','-mat');")
+        f.close()
+        vprint( "run 'octave "+filename+"' to generate graph.mat to load in your program",2)
+
+    # exports to osm xml
     def export(self,filename,transport):
         vprint( "osm-xml export...",1)
 
-        #remember all nodes allready exported
+        #remember all nodes already exported
         unodes = {}
 
         fp = open(filename, "w")
@@ -650,15 +689,14 @@ class OSM:
         x.endElement('osm')
         x.endDocument()
 
-#returns a nice graph
+    # returns a nice graph
+    # attention do not use for a bigger network (only single lines)
     def graph(self,only_roads=True):
       G = networkx.Graph()
 
       for w in self.ways.itervalues():
           if only_roads and 'highway' not in w.tags:
               continue
-          #G.add_path(w.nds, id=w.id, data=w) #problematic becase of to big graph
-          #G.add_edge(w.nds[0],w.nds[-1])
           G.add_weighted_edges_from([(w.nds[0],w.nds[-1],self.calclength(w))])
       for n_id in G.nodes_iter():
           n = self.nodes[n_id]
@@ -695,24 +733,26 @@ class OSM:
 #        # Always shut down your
 #        db.shutdown()
 
-
+# main
+#
+# method to read the command line arguments and run the program
 def main():
     parser = argparse.ArgumentParser(\
-             description='This script provides you routable data from the OpenStreetMap Project',
+             description='This script provides you routeable data from the OpenStreetMap Project',
              epilog="Have fun while usage")
     #input selection
     group = parser.add_mutually_exclusive_group()
     group.add_argument('-f','--filename','--file', help='the path to a local file')
     group.add_argument("-b", "--bbox", help="an area to download highways in the format 'left,bottom,right,top'")
     parser.add_argument("-t", "--transport", choices=["all", "hw", "pt"], default="all",
-            help="Experimental Option! Uses as well public transportation infomation")
+            help="Experimental Option! Uses as well public transportation information")
     parser.add_argument("-o", "--osm-file", nargs='?', const='export.osm',
-            help="export the routable graph as osm-xml to given file")
+            help="export the routeable graph as osm-xml to given file")
             #type=argparse.FileType('w'),
     parser.add_argument("-m", "--matlab-file", nargs='?', const='export.m',
-            help="export the routable graph as ugly matlab file")
+            help="export the routable graph as ugly Matlab file")
             #type=argparse.FileType('w'),
-    parser.add_argument("-g", "--graph", help="show the routable graph in a plot - only for smaller ones recomended",
+    parser.add_argument("-g", "--graph", help="show the routeable graph in a plot - only for smaller ones recommended",
                             dest="graph", action="store_true")
     parser.add_argument("-v", "--verbosity", type=int, choices=[0, 1, 2, 3],
                                 help="increase output verbosity")
