@@ -379,119 +379,126 @@ class OSM:
                     r.tags['route']=='bus')):
                 continue
 
-            route_type = r.tags['route']
-            vprint( route_type,2)
+            # parse this route and add the edges
+            ec = self.route2edges(r, new_ways, ec)
 
-            #extract stops
-            stops = []
-            #iterates through the items list (converted from hash)
-            for nid,role in map(lambda t: (t.items()[0]), r.mnode):
-                if role.split(':')[0]=='stop':
-                    stops.append(nid)
-            vprint( str(len(stops))+" Stops found",2)
-
-            tw = None
-            # to turn the ways in the right direction
-            last_node = None
-            last_way = None
-            i = 0
-            #iterates through the items list (converted from hash)
-            for old_wayid,role in map(lambda t: (t.items()[0]), r.mway):
-                if not (role=='forward' or role=='backward' or role==''):
-                    continue
-                vprint( "\ntry adding Way["+str(old_wayid)+"]",2)
-                vprint(self.vways[old_wayid],3)
-                nds = []
-                
-                #first node out of first way
-                fnode = self.ways[self.vways[old_wayid][0]].nds[0]
-
-                #last node out of last way
-                lnode = self.ways[self.vways[old_wayid][-1]].nds[-1]
-
-                #check if node order is wrong
-                invert = False
-                if not last_node==None:
-                    if last_node==fnode:
-                        invert = False
-                    elif last_node==lnode:
-                        invert = True
-                    else:#ERROR
-                        errors += 1
-                        #idea to skip a route if an error was found
-                        #TODO add this information to the check-report
-                        vprint( "ERROR "+str(errors)+": Relation ["+str(r.id)+"] in Way ["+str(old_wayid)+"] is not connected to the previous Way ["+str(last_way)+"]",0)
-                else:
-                    invert = False
-
-                last_way = old_wayid
-
-                if invert:
-                    part_ways = self.vways[old_wayid][::-1]
-                    last_node = fnode
-                    vprint("invert way",2)
-                else:
-                    part_ways = self.vways[old_wayid]
-                    last_node = lnode
-                    vprint("don't invert way",2)
-                vprint( part_ways,3)
-
-                #the next part hast to operate on the split ways
-                for wayid in part_ways:
-                    if invert:
-                        nds = self.ways[wayid].nds[::-1]
-                    else:
-                        nds = self.ways[wayid].nds
-
-                    #skip if last stop was already reached
-                    if i>=len(stops):
-                        break
-                    vprint( "waypart ["+str(wayid)+"] info: stop:"+str(i)+\
-                            "["+stops[i]+"] \tn0: "+str(nds[0])+
-                            "\tn-1:"+str(nds[-1]),2)
-                    #there are 2 different edges possible in kinds of stop position 0-x, 1-x
-                    #and it might be a continuing or the first edge
-                    if tw==None:
-                        if stops[i]==nds[0]:
-                            #its a new edge
-                            tw = Way('special-'+str(ec),None) 
-                            tw.tags = r.tags;
-                            tw.tags['highway']=route_type
-                            tw.tags['oneway']="yes"#always oneway (one relation for each direction)
-                            tw.nds.extend(nds) #all nodes have to belong to the edge cause way was split on stops
-
-                            i += 1#jump to next stop_position
-                            vprint( "create new Edge ["+str(tw.id)+"]",3)
-                    else:
-                        if stops[i]==nds[0]:
-                            #stop the last edge 
-                            new_ways[tw.id] = tw
-                            vprint("new wayid="+str(tw.id),3)
-                            ec += 1
-
-                            vprint( "finish edge ["+tw.id+"] and create new"+\
-                                    "Edge [special-"+str(ec)+"]",3)
-                            #and start a new one
-                            tw = Way('special-'+str(ec),None) 
-                            tw.tags = r.tags;
-                            tw.tags['highway']= route_type
-                            tw.tags['oneway']="yes"#always oneway (one relation for each direction)
-                            tw.nds.extend(nds) #all nodes have to belong to the edge cause way was split on stops
-
-                            i += 1#jump to next stop_position
-                        else:
-                            #just continue the last edge
-                            tw.nds.extend(nds)
-                            vprint( "continue Edge ["+str(tw.id)+"]",3)
-                        
-
-
-
+        # add all new edges to the old ways
         vprint( "new and old ways",3)
         vprint( new_ways.keys(),3)
         vprint( self.ways.keys(),3)
         self.ways.update(new_ways)
         vprint( str(errors)+" Errors found\n",1)
+
+    def route2edges(self, rel, new_ways, ec):
+        errors = 0#TODO pass the reference of this var in the call
+        route_type = rel.tags['route']
+        vprint( route_type,2)
+
+        #extract stops
+        stops = []
+        #iterates through the items list (converted from hash)
+        for nid,role in map(lambda t: (t.items()[0]), rel.mnode):
+            if role.split(':')[0]=='stop':
+                stops.append(nid)
+        vprint( str(len(stops))+" Stops found",2)
+
+        tw = None
+        # to turn the ways in the right direction
+        last_node = None
+        last_way = None
+        i = 0
+        #iterates through the items list (converted from hash)
+        for old_wayid,role in map(lambda t: (t.items()[0]), rel.mway):
+            if not (role=='forward' or role=='backward' or role==''):
+                continue
+            vprint( "\ntry adding Way["+str(old_wayid)+"]",2)
+            vprint(self.vways[old_wayid],3)
+            nds = []
+            
+            #first node out of first way
+            fnode = self.ways[self.vways[old_wayid][0]].nds[0]
+
+            #last node out of last way
+            lnode = self.ways[self.vways[old_wayid][-1]].nds[-1]
+
+            #check if node order is wrong
+            invert = False
+            if not last_node==None:
+                if last_node==fnode:
+                    invert = False
+                elif last_node==lnode:
+                    invert = True
+                else:#ERROR
+                    errors += 1
+                    #idea to skip a route if an error was found
+                    #TODO add this information to the check-report
+                    vprint( "ERROR "+str(errors)+": Relation ["+str(rel.id)+"] in Way ["+str(old_wayid)+"] is not connected to the previous Way ["+str(last_way)+"]",0)
+            else:
+                invert = False
+
+            last_way = old_wayid
+
+            if invert:
+                part_ways = self.vways[old_wayid][::-1]
+                last_node = fnode
+                vprint("invert way",2)
+            else:
+                part_ways = self.vways[old_wayid]
+                last_node = lnode
+                vprint("don't invert way",2)
+            vprint( part_ways,3)
+
+            #the next part hast to operate on the split ways
+            for wayid in part_ways:
+                if invert:
+                    nds = self.ways[wayid].nds[::-1]
+                else:
+                    nds = self.ways[wayid].nds
+
+                #skip if last stop was already reached
+                if i>=len(stops):
+                    break
+                vprint( "waypart ["+str(wayid)+"] info: stop:"+str(i)+\
+                        "["+stops[i]+"] \tn0: "+str(nds[0])+
+                        "\tn-1:"+str(nds[-1]),2)
+                #there are 2 different edges possible in kinds of stop position 0-x, 1-x
+                #and it might be a continuing or the first edge
+                if tw==None:
+                    if stops[i]==nds[0]:
+                        #its a new edge
+                        tw = Way('special-'+str(ec),None) 
+                        tw.tags = rel.tags;
+                        tw.tags['highway']=route_type
+                        tw.tags['oneway']="yes"#always oneway (one relation for each direction)
+                        tw.nds.extend(nds) #all nodes have to belong to the edge cause way was split on stops
+
+                        i += 1#jump to next stop_position
+                        vprint( "create new Edge ["+str(tw.id)+"]",3)
+                else:
+                    if stops[i]==nds[0]:
+                        #stop the last edge 
+                        new_ways[tw.id] = tw
+                        vprint("new wayid="+str(tw.id),3)
+                        ec += 1
+
+                        vprint( "finish edge ["+tw.id+"] and create new"+\
+                                "Edge [special-"+str(ec)+"]",3)
+                        #and start a new one
+                        tw = Way('special-'+str(ec),None) 
+                        tw.tags = rel.tags;
+                        tw.tags['highway']= route_type
+                        tw.tags['oneway']="yes"#always oneway (one relation for each direction)
+                        tw.nds.extend(nds) #all nodes have to belong to the edge cause way was split on stops
+
+                        i += 1#jump to next stop_position
+                    else:
+                        #just continue the last edge
+                        tw.nds.extend(nds)
+                        vprint( "continue Edge ["+str(tw.id)+"]",3)
+
+        return ec
+                        
+
 
 
     #calculates the way length in km
