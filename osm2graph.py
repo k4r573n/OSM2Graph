@@ -41,6 +41,7 @@ import math
 import urllib
 
 verbose = 1
+errors = 0
 
 def vprint(stri,level):
     global verbose
@@ -72,13 +73,14 @@ def getNetwork(left,bottom,right,top,transport="all"):
                ");"+\
                ">>;"+\
          ");"
-        #pt_query = ""+\
-        # "("+\
-        #       "("+\
-        #            "relation("+bbox+")[type=route][route=tram][\"name\"~\"^Linie 2\",i];"+\
-        #       ");"+\
-        #       ">>;"+\
-        # ");"
+
+       # pt_query = ""+\
+       #  "("+\
+       #        "("+\
+       #             "relation[\"route_master\"=\"tram\"][\"network\"=\"VRB\"];"+\
+       #        ");"+\
+       #        ">>;"+\
+       #  ");"
     meta = ""
     if (verbose >= 1):
         meta = " meta"
@@ -219,6 +221,37 @@ class Relation:
         self.mrelation = []
         self.tags = {}
 
+    # creates a osm-xml relation object
+    def toOSM(self,x):
+        # Generate SAX events
+        frame = False
+        if x == None :
+            frame=True
+            # Start Document
+            x = XMLGenerator(sys.stdout, "UTF-8")
+            x.startDocument()
+            x.startElement('osm',{"version":"0.6"})
+
+        x.startElement('relation',{"id":"-"+self.id.split("-",2)[1]})
+        
+        #bad but for rendering ok
+        #x.startElement('way',{"id":self.id.replace("special","").split("-",2)[0]})
+        for nid,role in map(lambda t: (t.items()[0]), self.mnode):
+            x.startElement('member',{"type":"node", "ref":nid, "role":role})
+            x.endElement('member')
+        for wid,role in map(lambda t: (t.items()[0]), self.mway):
+            x.startElement('member',{"type":"way", "ref":wid, "role":role})
+            x.endElement('member')
+        for rid,role in map(lambda t: (t.items()[0]), self.mrelation):
+            x.startElement('member',{"type":"relation", "ref":rid, "role":role})
+            x.endElement('member')
+        for k, v in self.tags.iteritems():
+            x.startElement('tag',{"k":k, "v":v})
+            x.endElement('tag')
+        x.endElement('way')
+        if frame:
+            x.endElement('osm')
+            x.endDocument()
 
 # Route
 #
@@ -370,7 +403,7 @@ class OSM:
     def addPublicTransport(self,ec):
         """ prepare route relations for routing """
         # error counter
-        errors = 0
+        global errors
         
 #TODO check if its well tagged before trying to add
         new_ways = {}
@@ -379,6 +412,7 @@ class OSM:
                     r.tags['route']=='bus')):
                 continue
 
+            self.simplifyRoute(r)
             # parse this route and add the edges
             ec = self.route2edges(r, new_ways, ec)
 
@@ -389,15 +423,34 @@ class OSM:
         self.ways.update(new_ways)
         vprint( str(errors)+" Errors found\n",1)
 
+    # substitutes all relation members by its' node and way members
+    def simplifyRoute(self, rel, parent=None):
+        
+        vprint("simplify rel["+str(rel.id)+"] parent["+( str(parent.id) if
+            parent != None else "")+"]",2);
+        for subRelID,role in map(lambda t: (t.items()[0]), rel.mrelation):
+            if 'route' in self.relations[subRelID].tags:
+                # recursional calls
+                self.simplifyRoute(self.relations[subRelID],rel)
+#TODO delete the simplified relation out of the member list
+
+        # add all nodes and ways to parent rel
+        if parent != None:
+            parent.mnode.extend(rel.mnode)
+            parent.mway.extend(rel.mway)
+
+
+
     def route2edges(self, rel, new_ways, ec):
-        errors = 0#TODO pass the reference of this var in the call
+        # error counter
+        global errors
         route_type = rel.tags['route']
         vprint( route_type,2)
 
         #extract stops
         stops = []
         #iterates through the items list (converted from hash)
-        for nid,role in map(lambda t: (t.items()[0]), rel.mnode):
+        for nid,role in map(lambda t: t.items()[0], rel.mnode): 
             if role.split(':')[0]=='stop':
                 stops.append(nid)
         vprint( str(len(stops))+" Stops found",2)
